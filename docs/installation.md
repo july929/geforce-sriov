@@ -113,7 +113,6 @@ See [What install --dry-run and status check](#what-install---dry-run-and-status
 | Linux guest | 580.159.03 | 535.230.02 (vGPU 16.9) |
 | Windows guest | 582.53 | 539.19 (vGPU 16.9) |
 | Guest setting | `RMSetVgpuGspPluginOffloadMode=0` | Same |
-| Default vGPU type | 525, RTXA6000-2Q, 2048 MiB | 942, RTX6000-Ada-2Q, 2048 MiB |
 
 Use the host and guest driver versions in this table.
 Other versions are **not guaranteed to work**.
