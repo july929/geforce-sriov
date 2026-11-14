@@ -157,7 +157,7 @@ The versions geforce-sriov targets:
 | Windows guest | 582.53 | 539.19 (vGPU 16.9) |
 | Guest driver setting (required) | `RMSetVgpuGspPluginOffloadMode=0`, a modprobe option in a Linux guest and a registry value in a Windows guest. Without it the guest driver fails with `RmInitAdapter failed` on Linux and Code 43 on Windows | Same |
 
-Use these versions. Other host or guest driver versions are **not guaranteed to work**. See [Supported software stack](docs/installation.md#supported-software-stack) for what `install` does with another version, and [Guests](docs/installation.md#guests) for guest setup.
+It is recommended to use the listed versions. Other versions may also work but are **not guaranteed**: `install` then tries a best-effort build, and it stops without changing anything when it cannot find what it patches. See [Supported software stack](docs/installation.md#supported-software-stack) for what `install` does with another version, and [Guests](docs/installation.md#guests) for guest setup.
 
 ## Quick start
 
