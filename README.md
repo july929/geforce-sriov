@@ -3,6 +3,8 @@
 geforce-sriov lets several virtual machines share one NVIDIA GeForce card through NVIDIA's vGPU software.
 Each VM can use its own SR-IOV virtual function (VF).
 
+See the [FAQ](docs/faq.md) for answers to common questions.
+
 ## Terms
 
 These terms appear throughout the documentation. See the [glossary](docs/glossary.md) for more terms.
