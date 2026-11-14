@@ -3,6 +3,21 @@
 geforce-sriov lets several virtual machines share one NVIDIA GeForce card through NVIDIA's vGPU software.
 Each VM can use its own SR-IOV virtual function (VF).
 
+## Terms
+
+These terms appear throughout the documentation. See the [glossary](docs/glossary.md) for more terms.
+
+| Term | Meaning |
+|---|---|
+| Host | The machine that holds the GPU and runs the VMs: a Linux KVM host such as Proxmox VE |
+| Guest, VM | A virtual machine running on the host |
+| GPU | The GeForce card |
+| SR-IOV | A PCI feature that lets one device present several lightweight copies of itself |
+| PF (physical function) | The GeForce card itself, as the host sees it |
+| VF (virtual function) | One copy of the card created by SR-IOV. Each VF is handed to one VM |
+| vGPU | The virtual GPU a VM gets through its VF, using NVIDIA's vGPU software |
+| vGPU type (profile) | The fixed memory size of a vGPU, for example `RTXA6000-4Q` with 4 GB of VRAM |
+
 ## Motivation
 
 Normally a GeForce card belongs to one VM or to the host.
@@ -39,19 +54,6 @@ flowchart LR
     end
     BEFORE ~~~ AFTER
 ```
-
-These terms appear throughout the documentation (see the [glossary](docs/glossary.md) for more terms):
-
-| Term | Meaning |
-|---|---|
-| Host | The machine that holds the GPU and runs the VMs: a Linux KVM host such as Proxmox VE |
-| Guest, VM | A virtual machine running on the host |
-| GPU | The GeForce card |
-| SR-IOV | A PCI feature that lets one device present several lightweight copies of itself |
-| PF (physical function) | The GeForce card itself, as the host sees it |
-| VF (virtual function) | One copy of the card created by SR-IOV. Each VF is handed to one VM |
-| vGPU | The virtual GPU a VM gets through its VF, using NVIDIA's vGPU software |
-| vGPU type (profile) | The fixed memory size of a vGPU, for example `RTXA6000-4Q` with 4 GB of VRAM |
 
 geforce-sriov has three parts:
 
