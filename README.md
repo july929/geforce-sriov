@@ -114,6 +114,20 @@ that results from using it.
   </tr>
 </table>
 
+## Performance
+
+A vGPU VM on an Ampere card runs as fast as the card does on the host. The table compares one 4 GiB vGPU in a VM with the card's physical GPU on the host, on a memory-modded RTX 3080 20GB.
+
+| Benchmark | Host (physical GPU) | VM (vGPU) | VM / host |
+|---|---|---|---|
+| FP32 matmul (TFLOPS) | 20.47 | 20.54 | 1.003 |
+| FP16 matmul, tensor cores (TFLOPS) | 58.35 | 58.54 | 1.003 |
+| Device memory copy (GB/s) | 681.7 | 704.4 | 1.033 |
+
+See [Ampere](docs/ampere.md#performance-vgpu-vm-vs-host) for the method.
+
+geforce-sriov does not affect the GPU's performance. Most of the changes act at boot, when the VFs are created or when a VM starts. None of them adds code to the path that runs the GPU's work, so a VM gets the full speed of its share of the card.
+
 ## What you need
 
 - A card from the [device table](docs/devices.md#generations), and a vGPU licence setup of your own.
