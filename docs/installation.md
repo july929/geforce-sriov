@@ -185,6 +185,8 @@ Run `sudo ./geforce-sriov setup` again after boot to check every VF and see the 
 `setup` prints `Setup runs with:`, a summary and one `geforce-sriov setup --no-prompt …` command that repeats the run without questions. Copy it to repeat a run that stops without answering every question.
 Then `== install --dry-run`, `== install`, `== activate` and `== check` run in turn. The NVIDIA module build in `== install` takes a few minutes.
 If `setup` prints `The install is complete.` and `Next: power the machine off and on.`, switch the machine fully off and on, then run `geforce-sriov setup` again. The installed command works from any folder without `./`.
+`setup` prints the same two lines when a display manager holds a selected GPU and was left running. This happens when `--no-prompt` is used, because it never stops the display manager. It also happens when you answer no at the question. The GPUs are brought up at the next boot, and `setup` exits 0. The lines also say how to bring the GPUs up now.
+If `setup` cannot tell which programs use the selected GPUs, it prints `The install is complete.` and asks you to fix the cause it names, then power the machine off and on. It exits 1, because boot activation refuses for the same cause.
 `check` prints one line per VF:
 
 ```text
@@ -971,7 +973,7 @@ What `install` adds and what `uninstall` does with it:
 | Patched plugin copy and the `libnvidia-vgpu.so` link | Removes the copy and points the link back, while they are unchanged |
 | Modprobe files | Removes each one while it is unchanged |
 | Kernel hook, state files, kept inputs | Removes them. Keeps the build inputs while a restore of NVIDIA's module is owed, and keeps a set activation lock |
-| `/etc/geforce-sriov/config` | Removes it. Keeps a config you edited |
+| `/etc/geforce-sriov/config` | Removes it, and then the folder when it is empty. Keeps a config you edited, and the folder with it |
 | NVIDIA's own driver install and the extracted package | Leaves them. Remove the driver with `nvidia-uninstall` |
 
 The usual procedure is to uninstall, then power the machine off and on.

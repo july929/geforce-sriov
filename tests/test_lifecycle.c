@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /*
- * CLI and lifecycle tests for geforce-sriov 0.4.1.
+ * CLI and lifecycle tests for geforce-sriov 0.4.2.
  *
  * Fixture sysfs trees are built in a temporary directory; only read-only commands and DESTDIR
  * staging run against them. The activation flow is exercised in-process against a simulated
@@ -7084,6 +7084,121 @@ static void test_version_setup(void)
 	(void)answer;
 }
 
+static const char *un_manifest, *un_modprobe;
+static int uninstall_files_host(void);
+/* uninstall removes the config and state directories only when they are empty at the end. */
+static void test_uninstall_empty_dirs(void)
+{
+	char cfgdir[GS_PATH_MAX], state[GS_PATH_MAX], cfg[GS_PATH_MAX], manifest[GS_PATH_MAX], modprobe[GS_PATH_MAX];
+	char p[GS_PATH_MAX], sha[65], *out;
+
+	gs_pathf(cfgdir, sizeof(cfgdir), "%s/ued/etc/geforce-sriov", tmp);
+	gs_pathf(state, sizeof(state), "%s/ued/var/lib/geforce-sriov", tmp);
+	gs_pathf(cfg, sizeof(cfg), "%s/config", cfgdir);
+	gs_pathf(manifest, sizeof(manifest), "%s/" GS_MANIFEST_NAME, state);
+	gs_pathf(modprobe, sizeof(modprobe), "%s/ued/modprobe.d", tmp);
+	gs_mkdir_p(cfgdir, 0755);
+	gs_mkdir_p(state, 0755);
+	gs_mkdir_p(modprobe, 0755);
+	un_manifest = manifest;
+	un_modprobe = modprobe;
+
+	/* The directory existed before install, so the manifest lists the config file only: both directories go. */
+	writef(cfg, "bdfs=0000:03:00.0\n");
+	CHECK(gs_sha256_file(cfg, sha) == 0, "config digest");
+	writef(manifest, "f %s %s\n", sha, cfg);
+	CHECK(run_host(uninstall_files_host, &out) == GS_EXIT_OK && !gs_exists(cfg) && !gs_exists(state),
+	      "the manifest's own directory goes with an emptied uninstall: %s", out);
+	free(out);
+	CHECK(gs_exists(cfgdir), "the manifest does not name the config directory, so uninstall_files leaves it");
+	gs_uninstall_empty_dirs(cfgdir, state);
+	CHECK(!gs_exists(cfgdir), "the empty config directory is removed");
+
+	/* A config edited since install is kept, and its directory stays with it. */
+	gs_mkdir_p(cfgdir, 0755);
+	gs_mkdir_p(state, 0755);
+	writef(cfg, "bdfs=0000:03:00.0\n");
+	CHECK(gs_sha256_file(cfg, sha) == 0, "config digest");
+	writef(manifest, "f %s %s\n", sha, cfg);
+	writef(cfg, "bdfs=0000:03:00.0\nvfs=2\n");
+	CHECK(run_host(uninstall_files_host, &out) == GS_EXIT_OK && gs_exists(cfg), "an edited config is kept: %s", out);
+	free(out);
+	gs_uninstall_empty_dirs(cfgdir, state);
+	CHECK(gs_exists(cfgdir) && gs_exists(cfg), "the kept config keeps its directory");
+	CHECK(gs_exists(state), "the state directory still holds the kept manifest");
+
+	/* Only empty directories go, never what is inside: a folder inside the state directory keeps it. */
+	gs_pathf(p, sizeof(p), "%s/nvidia/580.159.01", state);
+	gs_mkdir_p(p, 0755);
+	unlink(cfg);
+	unlink(manifest);
+	gs_uninstall_empty_dirs(cfgdir, state);
+	CHECK(!gs_exists(cfgdir) && gs_exists(p), "empty config directory removed, state directory with content kept");
+}
+
+/* setup --no-prompt, a display manager on a selected GPU: the install is complete, the power cycle applies it. */
+static void test_setup_display_manager(void)
+{
+	char root[GS_PATH_MAX], pkg[GS_PATH_MAX], cfg[GS_PATH_MAX], *out, *log;
+	struct gs_install_opts o;
+
+	snprintf(root, sizeof(root), "%s/dm-setup", tmp);
+	make_card(root, &topo_default, gpu_ada, 1, NULL);
+	sim_reset(root);
+	gs_pathf(pkg, sizeof(pkg), "%s/NVIDIA-Linux-x86_64-580.159.01-vgpu-kvm.run", root);
+	writef(pkg, "#!/bin/sh\nexit 0\n");
+	gs_pathf(cfg, sizeof(cfg), "%s/no-config", root);
+	gs_pathf(setup_log, sizeof(setup_log), "%s/setup.log", root);
+	unlink(setup_log);
+	setup_write_config = cfg;
+	setup_opts(&o, pkg);
+	gs_addr_parse("0000:03:00.0", &o.devices[0]);
+
+	CHECK(run_setup(root, NULL, &o, 0, cfg, NULL, &out) == GS_EXIT_OK &&
+	      contains(out, "display-manager.service holds a selected GPU. --no-prompt does not stop graphical sessions.") &&
+	      contains(out, "The install is complete. display-manager.service holds a selected GPU and was left running, so the GPUs were not brought up.") &&
+	      contains(out, "Next: power the machine off and on.") &&
+	      contains(out, "  systemctl stop display-manager.service\n  geforce-sriov activate\n  systemctl start display-manager.service\n"),
+	      "no-prompt with a display manager: complete, power cycle, exit 0: %s", out);
+	log = slurp(setup_log);
+	CHECK(contains(log, " install ") && !contains(log, " activate"), "install ran, activation did not: %s", log ? log : "");
+	free(log);
+	free(out);
+
+	/* The same install answered with no at the stop question: the same complete install, exit 0. */
+	unlink(cfg);
+	unlink(setup_log);
+	CHECK(run_setup(root, "n\nn\nn\nn\nn\n", &o, 0, cfg, NULL, &out) == GS_EXIT_OK &&
+	      contains(out, "Stop display-manager.service temporarily and bring the GPUs up now? [y/N]") &&
+	      contains(out, "The install is complete. display-manager.service holds a selected GPU and was left running, so the GPUs were not brought up.") &&
+	      contains(out, "Next: power the machine off and on."), "a no at the stop question: complete, power cycle, exit 0: %s", out);
+	log = slurp(setup_log);
+	CHECK(contains(log, " install ") && !contains(log, " activate"), "a no: install ran, activation did not: %s", log ? log : "");
+	free(log);
+	free(out);
+
+	/* Programs that use the GPUs cannot be inspected: the install is just as complete. */
+	{
+		char link[GS_PATH_MAX];
+
+		gs_pathf(link, sizeof(link), "%s/etc/systemd/system", root);
+		gs_mkdir_p(link, 0755);
+		gs_pathf(link, sizeof(link), "%s/etc/systemd/system/display-manager.service", root);
+		writef(link, "%s", "not a link\n");
+		unlink(cfg);
+		unlink(setup_log);
+		CHECK(run_setup(root, NULL, &o, 0, cfg, NULL, &out) == GS_EXIT_FAIL &&
+		      contains(out, "setup: cannot tell which programs use the selected GPUs:") &&
+		      contains(out, "The install is complete. The programs that use the selected GPUs could not be inspected, so the GPUs were not\nbrought up, and boot activation refuses for the same reason.") &&
+		      contains(out, "Next: fix the cause above, then power the machine off and on."), "inspection unknown: complete, exit 1: %s", out);
+		log = slurp(setup_log);
+		CHECK(contains(log, " install ") && !contains(log, " activate"), "inspection unknown: activation did not run: %s", log ? log : "");
+		free(log);
+		free(out);
+		unlink(link);
+	}
+}
+
 /* ---- the loaded display patch (idx 39) --------------------------------- */
 
 /* An ELF64 core image whose one PT_LOAD segment maps vaddr to file offset 0x1000. */
@@ -9516,6 +9631,8 @@ int main(int argc, char **argv)
 	RUN(test_version_record);
 	RUN(test_build_line);
 	RUN(test_version_setup);
+	RUN(test_setup_display_manager);
+	RUN(test_uninstall_empty_dirs);
 	RUN(test_loaded_patch);
 	RUN(test_older_install);
 	RUN(test_kernel_hook);

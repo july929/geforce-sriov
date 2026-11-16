@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2] - 2026-11-15
+
+### Fixed
+
+- `uninstall` now also removes the configuration folder and the state folder when nothing is left in them, and keeps a folder that still holds a file you edited.
+- `setup` now finishes with the install-complete message and the power-cycle step, and exits 0, when a display manager holds a selected GPU and is left running. This covers `--no-prompt` and a no at the question. See [One command from a clean host](docs/installation.md#one-command-from-a-clean-host).
+
 ## [0.4.1] - 2026-11-13
 
 This release keeps NVIDIA's driver away from GPUs you gave to other drivers, releases GPUs that NVIDIA's driver cannot start, and shows the host console on every selected GPU.
@@ -22,6 +29,7 @@ Run `sudo geforce-sriov uninstall` from 0.4.0, power the machine off and on, the
 ### Fixed
 
 - A build for a kernel that is not running no longer replaces the running kernel's published build record, and the next `install` or `rebuild` for the running kernel puts its record back.
+- The apt hook now rebuilds a kernel whose NVIDIA module is gone, `dkms autoinstall` has a time limit, and the hook checks the module's vermagic.
 
 ## [0.4.0] - 2026-11-13
 

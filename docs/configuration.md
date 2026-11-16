@@ -127,7 +127,7 @@ Ampere cards get no such line.
 | [`geforce-sriov check`](#check) | no | Check readiness before VM start |
 | [`geforce-sriov uninstall`](#uninstall) | yes | Remove files and restore stock files |
 | [`geforce-sriov rebuild`](#rebuild) | yes | Build NVIDIA's modules again for a kernel |
-| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.1`, or the usage text |
+| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.2`, or the usage text |
 | [`geforce-sriov-patch`](#driver-patcher) | no | Inspect, apply or revert driver patches |
 
 Exit codes:
@@ -249,6 +249,8 @@ It asks when its input is a terminal or with `--interactive`. `--no-prompt` neve
 - A card that is the boot display can be selected like any other.
   `activate` refuses it unless the installed build has NVIDIA's display modules, and then hands its console to them ([What activation does](technical-reference.md#what-activation-does)).
 - If a display manager holds a selected GPU, `setup` asks before it stops the display manager. `--no-prompt` never gives that consent.
+  Without a yes, the display manager keeps running and the GPUs are not brought up in this boot. `setup` finishes the install, prints `The install is complete.` and `Next: power the machine off and on.`, and exits 0.
+  If it cannot tell which programs use the selected GPUs, it finishes the install, asks you to fix the cause it names and exits 1.
 - If any selected GPU is a laptop GPU, `setup` shows the D3cold notice and asks whether to disable D3cold for the selected laptop GPUs. The default is no.
   Answering yes passes `--disable-d3cold` to `install --dry-run` and `install`. Declining stops `setup` with exit 3 before any step ([Consent](laptops.md#consent)).
   If `setup` cannot prompt, you must pass `--disable-d3cold`. Otherwise it stops the same way.
@@ -316,7 +318,7 @@ Options:
 
 It refuses `--prefix`, `--destdir` (or `DESTDIR`), `--source`, `--vfs`, `--ari` and `--msix` (exit 2).
 
-It prints `geforce-sriov 0.4.1: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
+It prints `geforce-sriov 0.4.2: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
 It exits 0, or 3 when a line is a `[FAIL]`.
 
 The checks cover:

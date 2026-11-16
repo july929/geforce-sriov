@@ -40,6 +40,7 @@
 #define GS_VGPUD_DROPIN_NAME "geforce-sriov.conf"
 
 #define GS_CONFIG_PATH "/etc/geforce-sriov/config"
+#define GS_CONFIG_DIR "/etc/geforce-sriov"
 /* Package-owned modprobe option so any autoload of UVM keeps HMM off (host CUDA builds). */
 #define GS_UVM_OPTION_PATH "/etc/modprobe.d/geforce-sriov-uvm.conf"
 /* Package-owned options so any autoload of nvidia_drm starts with KMS, fbdev and the allowlist. */
@@ -1129,6 +1130,8 @@ int gs_other_install(const char *root, const char *bindir, char *why, size_t len
 void gs_other_install_refusal(const char *root, const char *why, const char *fix);
 /* uninstall: removes the stamp in state_dir (and the directory, when empty) only when rc is GS_EXIT_OK. */
 void gs_format_release(const char *state_dir, int rc);
+/* uninstall: rmdir of the config and state directories, each only when empty (named directories, never recursive). */
+void gs_uninstall_empty_dirs(const char *config_dir, const char *state_dir);
 /* The x.y.z version the selected input names, if its name states one: 0, or -1 when it states none. */
 int gs_install_version_named(const struct gs_install_opts *o, char *out, size_t len);
 /*

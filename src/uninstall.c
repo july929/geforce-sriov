@@ -420,6 +420,20 @@ void gs_format_release(const char *state_dir, int rc)
 		printf("removed %s/\n", state_dir);
 }
 
+/*
+ * Uninstall's last step for the two directories it names: each goes only when it is empty at the end, by rmdir, so a
+ * directory that still holds a kept file (an edited config, the activation lock) stays with it. Never recursive.
+ * A directory that install found already there is not in the manifest, so this is the only place that removes it.
+ */
+void gs_uninstall_empty_dirs(const char *config_dir, const char *state_dir)
+{
+	const char *const dirs[] = { config_dir, state_dir };
+
+	for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++)
+		if (rmdir(dirs[i]) == 0)
+			printf("removed %s/\n", dirs[i]);
+}
+
 int gs_cmd_uninstall(int unload)
 {
 	static const char *const units[] = { GS_UNIT_LIVEPATCH, GS_UNIT_ACTIVATE };
@@ -474,6 +488,7 @@ int gs_cmd_uninstall(int unload)
 		else
 			printf("nothing installed by geforce-sriov (%s absent)\n", GS_MANIFEST);
 		gs_format_release(GS_STATE_DIR, rc);
+		gs_uninstall_empty_dirs(GS_CONFIG_DIR, GS_STATE_DIR);
 		return rc;
 	}
 
@@ -524,6 +539,7 @@ int gs_cmd_uninstall(int unload)
 				"libraries, which are removed.\n", desktop && !cuda ? "graphics" : desktop ? "CUDA and graphics" : "CUDA");
 	}
 	gs_format_release(GS_STATE_DIR, rc);
+	gs_uninstall_empty_dirs(GS_CONFIG_DIR, GS_STATE_DIR);
 	/* The preparation guard is not an installed file: a reinstall must still see it. */
 	if (gs_exists(GS_ATTEMPT_MARKER))
 		printf("kept activation lock %s: an activation did not finish, so power the machine off and on.\n"

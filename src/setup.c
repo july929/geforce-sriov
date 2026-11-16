@@ -984,12 +984,43 @@ static int run_install(const struct gs_setup_host *s, const char *self, const st
 	return step(s->h, self, "install", argv);
 }
 
+/* display_consent's answer when the display manager stays running and setup leaves the activation to the next boot. */
+#define DISPLAY_LEFT_FOR_BOOT (-1)
+
+/*
+ * Setup runs display_consent only after the installation is complete. A display manager that stays running means
+ * that the GPUs are not brought up in this boot. The next boot does it, before the display manager starts.
+ */
+static int manager_left(const char *unit)
+{
+	printf("\nThe install is complete. %s holds a selected GPU and was left running, so the GPUs were not brought up.\n"
+	       "Next: power the machine off and on. The boot units bring the GPUs up; `sudo geforce-sriov setup` then checks\n"
+	       "the result.\n"
+	       "To bring them up now instead, save your work, then run as root:\n"
+	       "  systemctl stop %s\n  geforce-sriov activate\n  systemctl start %s\n",
+	       unit, unit, unit);
+	return DISPLAY_LEFT_FOR_BOOT;
+}
+
+/*
+ * The programs that use the selected GPUs cannot be inspected. Boot activation inspects them the same way and
+ * refuses on the same cause, so the next boot does not fix it: the install is complete, and the run fails (1,
+ * as after any write) until the cause is fixed.
+ */
+static int not_inspected(void)
+{
+	printf("\nThe install is complete. The programs that use the selected GPUs could not be inspected, so the GPUs were not\n"
+	       "brought up, and boot activation refuses for the same reason.\n"
+	       "Next: fix the cause above, then power the machine off and on. `sudo geforce-sriov setup` then checks the result.\n");
+	return GS_EXIT_FAIL;
+}
+
 /*
  * The programs that use the selected GPUs, and the display-manager consent when one is active and
  * the display build is part of the selection: a plain build never touches a manager on another GPU,
  * so asking there would stop nothing. *consent is 1 only after a yes. 0 to go on;
- * GS_EXIT_REFUSED, with the commands, when inspection is unknown, when there is no question, or
- * when the answer is no.
+ * GS_EXIT_FAIL when the inspection fails or is unknown; DISPLAY_LEFT_FOR_BOOT, with the way to bring the GPUs
+ * up now, when the manager stays running (no question, a no, or the end of input).
  */
 static int display_consent(const struct gs_setup_host *s, const struct gs_config *cfg, int *consent)
 {
@@ -1000,14 +1031,14 @@ static int display_consent(const struct gs_setup_host *s, const struct gs_config
 
 	*consent = 0;
 	if (gs_display_plan_build(s->h, cfg, &plan)) {
-		fprintf(stderr, "setup: cannot inspect the programs that use the selected GPUs: %s\n"
-			"No GPU state was changed.\n", plan.reason[0] ? plan.reason : "an unreadable source");
-		return GS_EXIT_REFUSED;
+		fprintf(stderr, "setup: cannot inspect the programs that use the selected GPUs: %s\n",
+			plan.reason[0] ? plan.reason : "an unreadable source");
+		return not_inspected();
 	}
 	if (plan.inspection_unknown) {
-		fprintf(stderr, "setup: cannot tell which programs use the selected GPUs: %s\nNo GPU state was changed.\n",
+		fprintf(stderr, "setup: cannot tell which programs use the selected GPUs: %s\n",
 			plan.reason[0] ? plan.reason : "an unreadable source");
-		return GS_EXIT_REFUSED;
+		return not_inspected();
 	}
 	if (!plan.manager_active)
 		return 0;
@@ -1025,23 +1056,14 @@ static int display_consent(const struct gs_setup_host *s, const struct gs_config
 		 "  Setup stops %s, runs the activation, and starts it again afterwards.\n"
 		 "  Default is no.", unit);
 	if (s->in < 0) {
-		fprintf(stderr, "setup: %s holds a selected GPU. --no-prompt does not stop graphical sessions.\n"
-			"Save your work, then run as root:\n"
-			"  systemctl stop %s\n"
-			"  geforce-sriov activate\n"
-			"  systemctl start %s\n", unit, unit, unit);
-		return GS_EXIT_REFUSED;
+		fprintf(stderr, "setup: %s holds a selected GPU. --no-prompt does not stop graphical sessions.\n", unit);
+		return manager_left(unit);
 	}
 	r = ask_default_no(s, question, hint, NULL);
-	if (r < 0) {
-		fprintf(stderr, "setup: stopping %s needs a yes. To do it yourself, as root:\n"
-			"  systemctl stop %s\n  geforce-sriov activate\n  systemctl start %s\n", unit, unit, unit);
-		return GS_EXIT_REFUSED;
-	}
-	if (!r) {
-		printf("No GPU state was changed. To bring the GPUs up yourself, as root:\n"
-		       "  systemctl stop %s\n  geforce-sriov activate\n  systemctl start %s\n", unit, unit);
-		return GS_EXIT_REFUSED;
+	if (r <= 0) {
+		if (r < 0)
+			fprintf(stderr, "setup: stopping %s needs a yes.\n", unit);
+		return manager_left(unit);
 	}
 	*consent = 1;
 	return 0;
@@ -1072,7 +1094,7 @@ static int finish(const struct gs_setup_host *s, const char *self, const struct 
 	int consent, r;
 
 	if ((r = display_consent(s, cfg, &consent)))
-		return r;
+		return r == DISPLAY_LEFT_FOR_BOOT ? GS_EXIT_OK : r;
 	return activate_now(s->h, self, cfg, consent);
 }
 

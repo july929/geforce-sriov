@@ -94,7 +94,7 @@ flowchart TD
 | The patched `nvidia.ko`, with the display and `nvidia-uvm` modules when built | Where NVIDIA's own module lives, usually `/lib/modules/<release>/updates/dkms/` | While they still match the build record, puts NVIDIA's module back from the backup and removes added modules |
 | The patched plugin copy `libnvidia-vgpu.so.<version>.geforce-sriov` and the `libnvidia-vgpu.so` link | NVIDIA's library directory | Points the link back at NVIDIA's own plugin and removes the copy while it is the one `install` made |
 | The backup of NVIDIA's module, the build records and the kept build inputs | `/var/lib/geforce-sriov/stock/<release>/`, `driver-build`, `driver-builds/<kernel>`, `inputs/` | Removes them after a successful restore |
-| `/etc/geforce-sriov/config` | `/etc/geforce-sriov/` | Removes it while unchanged |
+| `/etc/geforce-sriov/config` | `/etc/geforce-sriov/` | Removes it while unchanged, then the folder when it is empty |
 | `geforce-sriov-nvidia.conf` and `geforce-sriov-autoload.conf`. With host CUDA, also `geforce-sriov-uvm.conf` | `/etc/modprobe.d/` | Removes the ones `install` wrote while unchanged |
 | The two boot units, the `nvidia-vgpud` drop-in and the guest-autostart drop-ins | `/etc/systemd/system/` | Disables the units and removes the files while unchanged |
 | The kernel hooks and the apt snippet `/etc/apt/apt.conf.d/99geforce-sriov`. On a `kernel-install` host without `/etc/kernel/postinst.d`, the plugin. On a pacman host, the pacman hook. For those two, also the `geforce-sriov-kernel-hook` script | `/etc/kernel/postinst.d/`, `/etc/kernel/header_postinst.d/`, `/etc/apt/apt.conf.d/`, `/etc/kernel/install.d/`, `/etc/pacman.d/hooks/`, `<prefix>/bin/` | Removes the ones `install` wrote while unchanged |
@@ -219,7 +219,7 @@ A card that was rescanned keeps using the revealed capability until it is remove
 | Path | What it is | License |
 |---|---|---|
 | `geforce-sriov` (`src/`) | CLI: inspection, install, activation, uninstall | MIT |
-| `kernel/geforce_sriov.c` | Livepatch module (DKMS `geforce-sriov/0.4.1`) | GPL-2.0-only OR MIT |
+| `kernel/geforce_sriov.c` | Livepatch module (DKMS `geforce-sriov/0.4.2`) | GPL-2.0-only OR MIT |
 | `hook/libgeforce_sriov.so` | `LD_PRELOAD` identity hook for `nvidia-vgpud` only | MIT |
 | `driver/geforce-sriov-patch` | Patcher for the user's own `nv-kernel.o_binary` | MIT |
 | `systemd/` | `geforce-sriov-livepatch.service`, `geforce-sriov-activate.service`, the `nvidia-vgpud` drop-in and the guest-autostart drop-in | MIT |
@@ -285,7 +285,7 @@ See [What activation does](#what-activation-does) for the step-by-step sequence.
 
 ## Install details
 
-A live install copies the binaries to `--prefix` (default `/usr/local`), the hook to `$PREFIX/lib/geforce-sriov/` and the module source to `/usr/src/geforce-sriov-0.4.1/`. It then runs `dkms add/build/install` and installs the boot units.
+A live install copies the binaries to `--prefix` (default `/usr/local`), the hook to `$PREFIX/lib/geforce-sriov/` and the module source to `/usr/src/geforce-sriov-0.4.2/`. It then runs `dkms add/build/install` and installs the boot units.
 `install` writes:
 
 - in `/var/lib/geforce-sriov/`: `installed-files` with every file it recorded, `format` with the version stamp, and `selection` with the identity of each selected card;
@@ -294,7 +294,7 @@ A live install copies the binaries to `--prefix` (default `/usr/local`), the hoo
 - on a `kernel-install` host without `/etc/kernel/postinst.d`, the plugin `/etc/kernel/install.d/90-geforce-sriov.install`;
 - on a pacman host, the hook `/etc/pacman.d/hooks/90-geforce-sriov.hook`, which runs the hook script with `--retry`;
 - for those last two hosts, the hook script `geforce-sriov-kernel-hook` beside the program;
-- the modprobe files `geforce-sriov-autoload.conf` and, with host CUDA, `geforce-sriov-uvm.conf` ([Modprobe files](installation.md#modprobe-files)). Version 0.4.1 writes no `geforce-sriov-display.conf`.
+- the modprobe files `geforce-sriov-autoload.conf` and, with host CUDA, `geforce-sriov-uvm.conf` ([Modprobe files](installation.md#modprobe-files)). Version 0.4.2 writes no `geforce-sriov-display.conf`.
 
 The driver step writes `driver-build`, `inputs/` and `driver-step.log` in `/var/lib/geforce-sriov/`, and the modprobe file `geforce-sriov-nvidia.conf`. None of them exist with `--driver=skip`.
 The kernel hook creates `kernel-hook-logs/` and `kernel-hook-failed/` in `/var/lib/geforce-sriov/` when it first runs.
