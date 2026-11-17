@@ -58,6 +58,24 @@ See the [FAQ](docs/faq.md) for answers to common questions.
   </tr>
 </table>
 
+## Contents
+
+- [Terms](#terms)
+- [Motivation](#motivation)
+- [Safety and reversibility](#safety-and-reversibility)
+- [Disclaimer](#disclaimer)
+- [Performance](#performance)
+- [What you need](#what-you-need)
+- [Quick start](#quick-start)
+  - [Upgrading from an earlier version](#upgrading-from-an-earlier-version)
+  - [Install](#install)
+- [How it works](#how-it-works)
+- [Boot display GPU](#boot-display-gpu)
+- [Supported cards and driver versions](#supported-cards-and-driver-versions)
+- [Documentation](#documentation)
+- [Related projects](#related-projects)
+- [License](#license)
+
 ## Terms
 
 These terms appear throughout the documentation. See the [glossary](docs/glossary.md) for more terms.
