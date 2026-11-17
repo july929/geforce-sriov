@@ -30,6 +30,21 @@ flowchart LR
 
 See the [FAQ](docs/faq.md) for answers to common questions.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="33%"><a href="docs/images/host.png"><img src="docs/images/host.png" width="100%" alt="Proxmox VE host with the desktop drawn by the GPU, fastfetch and nvidia-smi listing four vGPU processes"></a></td>
+    <td width="33%"><a href="docs/images/linux-guest-ampere.png"><img src="docs/images/linux-guest-ampere.png" width="100%" alt="Debian 12 guest with the desktop drawn by the vGPU, fastfetch and nvidia-smi showing an RTXA6000-4Q vGPU"></a></td>
+    <td width="33%"><a href="docs/images/windows-guest-ada.jpg"><img src="docs/images/windows-guest-ada.jpg" width="100%" alt="Windows 11 guest on an Ada card: the vGPU in Settings, GPU-Z and the NVIDIA Control Panel"></a></td>
+  </tr>
+  <tr>
+    <td>Proxmox VE host: the desktop is drawn by the GPU, and nvidia-smi lists the vGPU processes</td>
+    <td>Debian 12 guest on an Ampere card: the desktop is drawn by the vGPU</td>
+    <td>Windows 11 guest on an Ada card: the vGPU in Settings, GPU-Z and the NVIDIA Control Panel</td>
+  </tr>
+</table>
+
 ## Terms
 
 These terms appear throughout the documentation. See the [glossary](docs/glossary.md) for more terms.
@@ -105,21 +120,6 @@ Use at your own risk. This project is provided as is, without warranty of any ki
 licence, and the kernel module is under GPL-2.0-only OR MIT. See [LICENSE](LICENSE). I am not responsible
 or liable for any damage, data loss, hardware failure, instability, downtime or voided warranty
 that results from using it.
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="33%"><a href="docs/images/host.png"><img src="docs/images/host.png" width="100%" alt="Proxmox VE host with the desktop drawn by the GPU, fastfetch and nvidia-smi listing four vGPU processes"></a></td>
-    <td width="33%"><a href="docs/images/linux-guest-ampere.png"><img src="docs/images/linux-guest-ampere.png" width="100%" alt="Debian 12 guest with the desktop drawn by the vGPU, fastfetch and nvidia-smi showing an RTXA6000-4Q vGPU"></a></td>
-    <td width="33%"><a href="docs/images/windows-guest-ada.jpg"><img src="docs/images/windows-guest-ada.jpg" width="100%" alt="Windows 11 guest on an Ada card: the vGPU in Settings, GPU-Z and the NVIDIA Control Panel"></a></td>
-  </tr>
-  <tr>
-    <td>Proxmox VE host: the desktop is drawn by the GPU, and nvidia-smi lists the vGPU processes</td>
-    <td>Debian 12 guest on an Ampere card: the desktop is drawn by the vGPU</td>
-    <td>Windows 11 guest on an Ada card: the vGPU in Settings, GPU-Z and the NVIDIA Control Panel</td>
-  </tr>
-</table>
 
 ## Performance
 
