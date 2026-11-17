@@ -1,7 +1,10 @@
 # geforce-sriov
 
-geforce-sriov lets several virtual machines share one NVIDIA GeForce card through NVIDIA's vGPU software.
-Each VM can use its own SR-IOV virtual function (VF).
+geforce-sriov lets several virtual machines share one NVIDIA GeForce card through NVIDIA's vGPU software. It configures the card to provide SR-IOV virtual functions (VFs), so each VM can use its own virtual GPU rather than requiring a separate physical card.
+
+With other approaches, such as PCIe passthrough, a GPU is normally assigned to one VM and unavailable to the host while that VM is running. geforce-sriov uses SR-IOV instead, so the host and several VMs can share the same card. For example, you can run a dedicated Windows VM for gaming without detaching the entire GPU from the host. The host can continue to use the card for display and CUDA workloads.
+
+All changes are reversible. You can uninstall geforce-sriov and return to the stock driver. No permanent changes are made to the card's firmware. Virtual GPUs can approach native performance, depending on the workload and configuration.
 
 See the [FAQ](docs/faq.md) for answers to common questions.
 
