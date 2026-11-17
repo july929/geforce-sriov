@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /*
- * CLI and lifecycle tests for geforce-sriov 0.4.2.
+ * CLI and lifecycle tests for geforce-sriov 0.4.3.
  *
  * Fixture sysfs trees are built in a temporary directory; only read-only commands and DESTDIR
  * staging run against them. The activation flow is exercised in-process against a simulated

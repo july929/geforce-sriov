@@ -128,7 +128,7 @@ Ampere cards get no such line.
 | [`geforce-sriov check`](#check) | no | Check readiness before VM start |
 | [`geforce-sriov uninstall`](#uninstall) | yes | Remove files and restore stock files |
 | [`geforce-sriov rebuild`](#rebuild) | yes | Build NVIDIA's modules again for a kernel |
-| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.2`, or the usage text |
+| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.3`, or the usage text |
 | [`geforce-sriov-patch`](#driver-patcher) | no | Inspect, apply or revert driver patches |
 
 Exit codes:
@@ -331,7 +331,7 @@ Options:
 
 It refuses `--prefix`, `--destdir` (or `DESTDIR`), `--source`, `--vfs`, `--ari` and `--msix` (exit 2).
 
-It prints `geforce-sriov 0.4.2: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
+It prints `geforce-sriov 0.4.3: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
 It exits 0, or 3 when a line is a `[FAIL]`.
 
 The checks cover:
