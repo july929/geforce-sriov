@@ -6,6 +6,28 @@ With other approaches, such as PCIe passthrough, a GPU is normally assigned to o
 
 All changes are reversible. You can uninstall geforce-sriov and return to the stock driver. No permanent changes are made to the card's firmware. Virtual GPUs can approach native performance, depending on the workload and configuration.
 
+```mermaid
+flowchart LR
+    subgraph BEFORE["Without geforce-sriov"]
+        direction TB
+        G["GeForce card"] -->|"PCIe passthrough"| ONE["One VM"]
+        G -.->|"or used by"| HOST["The host"]
+    end
+    subgraph AFTER["With geforce-sriov"]
+        direction TB
+        PF["GeForce card<br/>(PF)"]
+        PF --> VF1["VF"]
+        PF --> VF2["VF"]
+        PF --> VF3["VF"]
+        PF --> VF4["VF"]
+        VF1 --> VM1["VM"]
+        VF2 --> VM2["VM"]
+        VF3 --> VM3["VM"]
+        VF4 --> VM4["VM"]
+    end
+    BEFORE ~~~ AFTER
+```
+
 See the [FAQ](docs/faq.md) for answers to common questions.
 
 ## Terms
@@ -37,28 +59,6 @@ geforce-sriov automates the steps that make it usable:
 
 The command `geforce-sriov setup` does the driver work and the VF configuration. It asks for what it needs, such as the path of NVIDIA's vGPU host driver `.run` file and the GPUs to use.
 Setting up the guests is still your job.
-
-```mermaid
-flowchart LR
-    subgraph BEFORE["Without geforce-sriov"]
-        direction TB
-        G["GeForce card"] -->|"PCIe passthrough"| ONE["One VM"]
-        G -.->|"or used by"| HOST["The host"]
-    end
-    subgraph AFTER["With geforce-sriov"]
-        direction TB
-        PF["GeForce card<br/>(PF)"]
-        PF --> VF1["VF"]
-        PF --> VF2["VF"]
-        PF --> VF3["VF"]
-        PF --> VF4["VF"]
-        VF1 --> VM1["VM"]
-        VF2 --> VM2["VM"]
-        VF3 --> VM3["VM"]
-        VF4 --> VM4["VM"]
-    end
-    BEFORE ~~~ AFTER
-```
 
 geforce-sriov has three parts:
 
