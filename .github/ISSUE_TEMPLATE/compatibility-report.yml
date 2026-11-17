@@ -10,199 +10,57 @@ body:
         useful as one that works**: choose *Does not work* or *Partially* under Result and tell us
         where it stopped. Software bugs that do not depend on your hardware go in a bug report.
 
-        The commands for each field are in
-        [docs/compatibility.md](https://github.com/noon-at-cgn/geforce-sriov/blob/main/docs/compatibility.md).
-        Only the fields marked as required must be filled in.
+        The most useful report comes after the power cycle and a first VM that ran with a vGPU.
+        A report taken right after the install says "not yet activated" on the `State:` line near its top.
+        Keep that one for later.
 
-        **This issue is public.** Before you paste anything, remove IP and MAC addresses, serial
-        numbers, GPU UUIDs, host and user names, and everything about your NVIDIA licence (licence
-        server, client configuration token). Never paste secrets.
-  - type: markdown
-    attributes:
-      value: "### GPU"
-  - type: input
-    id: gpu-model
-    attributes:
-      label: GPU model and memory
-      description: Product name, board or laptop maker and VRAM size. For a laptop, include its model and whether it uses Optimus or a MUX.
-      placeholder: "<card model>"
-    validations:
-      required: true
-  - type: input
-    id: pci-ids
-    attributes:
-      label: PCI ID and subsystem ID
-      description: "From `lspci -nnv -s <address>`: the `[10de:....]` at the end of the first line and the ID on the `Subsystem:` line."
-      placeholder: "10de:<device>, subsystem <vendor>:<device>"
-    validations:
-      required: true
-  - type: dropdown
-    id: board
-    attributes:
-      label: Board
-      options:
-        - Stock board and memory
-        - Memory-modded (more VRAM than stock)
-        - Otherwise modified (describe under notes)
-    validations:
-      required: true
-  - type: dropdown
-    id: generation
-    attributes:
-      label: Generation
-      options:
-        - Ampere (RTX 30)
-        - Ada (RTX 40)
-        - Other
-    validations:
-      required: true
-  - type: dropdown
-    id: gpu-count
-    attributes:
-      label: GPUs in the host
-      description: The boot display is the GPU that shows the firmware screen and the text console (`boot_vga` is `1`).
-      options:
-        - One NVIDIA GPU, not the boot display
-        - One NVIDIA GPU, which is the boot display
-        - Two or more NVIDIA GPUs, none is the boot display
-        - Two or more NVIDIA GPUs, one is the boot display
-    validations:
-      required: true
-  - type: markdown
-    attributes:
-      value: "### Host"
-  - type: input
-    id: host-os
-    attributes:
-      label: Host OS or hypervisor and version
-      placeholder: "Proxmox VE 9.0, Debian 13, Ubuntu 24.04"
-    validations:
-      required: true
-  - type: input
-    id: kernel
-    attributes:
-      label: Host kernel
-      description: "`uname -r`"
-      placeholder: "<kernel release>"
-    validations:
-      required: true
-  - type: dropdown
-    id: topology
-    attributes:
-      label: PCIe path to the GPU
-      description: "`lspci -tv` shows it."
-      options:
-        - Directly on a CPU root port
-        - Through the chipset
-        - Behind a PCIe switch
-        - Not sure
-  - type: textarea
-    id: firmware
-    attributes:
-      label: IOMMU, ARI and Above 4G settings
-      description: Firmware (BIOS/UEFI) settings and kernel command line options that matter here.
-      placeholder: "IOMMU on (intel_iommu=on), Above 4G decoding on, no pci=realloc"
-  - type: markdown
-    attributes:
-      value: "### Software"
-  - type: input
-    id: host-driver
-    attributes:
-      label: NVIDIA vGPU host driver version
-      description: "`modinfo -F version nvidia`"
-      placeholder: "580.159.01"
-    validations:
-      required: true
-  - type: dropdown
-    id: driver-patch
-    attributes:
-      label: Driver patch
-      options:
-        - Patched nvidia.ko (rebuilt from geforce-sriov-patch output)
-        - Stock nvidia.ko
-        - Not sure
-    validations:
-      required: true
-  - type: input
-    id: gs-version
-    attributes:
-      label: geforce-sriov version or commit
-      description: "`geforce-sriov --version`, and `git rev-parse --short HEAD` if you built from a checkout."
-      placeholder: "0.4.2, commit <short hash>"
-    validations:
-      required: true
-  - type: input
-    id: settings
-    attributes:
-      label: Changed settings
-      description: "Only settings you changed from the defaults, for example `vfs`, `ari`, `msix`, `display`, `host_cuda`, `host_desktop`, `type_ada` or `type_ampere`."
-      placeholder: "vfs=2, ari=off, host_desktop=off"
-  - type: textarea
-    id: guests
-    attributes:
-      label: Guests
-      description: One line per guest OS you tried, with its vGPU type and NVIDIA guest driver version.
-      placeholder: |
-        Windows 11, RTXA6000-4Q, guest driver <version>
-        Debian 12, RTXA6000-4Q, guest driver <version>
-  - type: markdown
-    attributes:
-      value: "### Result"
-  - type: checkboxes
-    id: steps
-    attributes:
-      label: What worked
-      description: Tick each step that worked and leave the others empty.
-      options:
-        - label: "geforce-sriov install --dry-run: no FAIL"
-        - label: activate created VFs
-        - label: VMs started with a vGPU
-        - label: A CUDA or graphics program ran in a guest
-        - label: A VM was restarted while other VMs kept running
-  - type: input
-    id: vf-count
-    attributes:
-      label: VFs per card after activate
-      placeholder: "4"
+        Run this on the host and paste the output once:
+
+        ```
+        sudo geforce-sriov report
+        ```
+
+        The command collects your GPU, host, driver, settings, `status` output and kernel log lines.
+        It removes IP and MAC addresses, serial numbers, GPU UUIDs, host and user names and licence
+        details before it prints. See
+        [docs/compatibility.md](https://github.com/noon-at-cgn/geforce-sriov/blob/main/docs/compatibility.md)
+        for what it collects. Run it from the build folder as `sudo ./geforce-sriov report` if you
+        have not installed geforce-sriov.
   - type: dropdown
     id: result
     attributes:
-      label: Overall result
+      label: Result
       description: A setup that does not work is as useful a report as one that works.
       options:
         - Works
         - Works with caveats
+        - Partially
         - Does not work
-        - "Partially: only some steps worked"
     validations:
       required: true
   - type: textarea
-    id: dry-run
+    id: report
     attributes:
-      label: Output of geforce-sriov install --dry-run
-      description: "`sudo geforce-sriov install --dry-run`, run before installing."
+      label: Output of geforce-sriov report
+      description: Paste everything the command printed, from the first `~~~text` line to the last `~~~` line.
       render: text
-  - type: textarea
-    id: status
+    validations:
+      required: true
+  - type: input
+    id: guests
     attributes:
-      label: Output of geforce-sriov status
-      description: "`sudo geforce-sriov status`"
-      render: text
-  - type: textarea
-    id: kernel-log
-    attributes:
-      label: Kernel log lines
-      description: "Only the relevant lines, not the whole log: `journalctl -k -b --no-hostname | grep -E 'geforce_sriov|NVRM|AER'`"
-      render: text
+      label: Guests you tried
+      description: The guest OS, its vGPU type and the NVIDIA guest driver version. The host cannot see these.
+      placeholder: "Windows 11 with RTXA6000-4Q and driver <version>; Debian 12 with RTXA6000-4Q and driver <version>"
   - type: textarea
     id: notes
     attributes:
-      label: What failed, what you tried, other notes
-      description: If something did not work, name the step, the message you got and what you tried.
+      label: What went wrong, and other notes
+      description: If something did not work, name the step, the message you got and what you tried. Mention a memory-modded or otherwise modified board here.
   - type: checkboxes
     id: privacy
     attributes:
       label: Private details
       options:
-        - label: I removed IP and MAC addresses, serial numbers, GPU UUIDs, host and user names and licence details from this report.
+        - label: I read the report above. It has no private details such as secrets or licence files, and I removed any that I added myself.
           required: true

@@ -15,6 +15,9 @@ static void usage(FILE *f)
 	fprintf(f,
 		"Usage: geforce-sriov COMMAND [OPTIONS]\n"
 		"  devices | status\n"
+		"  report [--out FILE]\n"
+		"      Collect what a compatibility report needs, remove private details and print one block to paste.\n"
+		"      --out FILE  write the block to FILE instead of printing it\n"
 		"  check [--device BDF]... [--type N] [--daemon-ready]\n"
 		"  activate [--type N] [--dry-run] [--boot] [--clear-lock]\n"
 		"           [--stop-display-manager]\n"
@@ -313,6 +316,35 @@ static int status_main(int argc, char **argv)
 	return gs_cmd_status(&o);
 }
 
+static int report_main(int argc, char **argv)
+{
+	struct gs_report_opts o;
+	struct stat st;
+	int i;
+
+	memset(&o, 0, sizeof(o));
+	for (i = 2; i < argc; i++) {
+		const char *v;
+
+		if ((v = opt_value(argc, argv, &i, "--out"))) {
+			if (v[0] == '\0')
+				return bad("%s needs a file", "--out");
+			o.out_path = v;
+		} else if ((v = opt_value(argc, argv, &i, "--sysfs-root"))) {
+			if (gs_validate_abs_path(v) || stat(v, &st) || !S_ISDIR(st.st_mode))
+				return bad("--sysfs-root '%s' must be an existing normalized absolute directory", v);
+			o.sysroot = v;
+		} else if ((v = opt_value(argc, argv, &i, "--config"))) {
+			if (v[0] == '\0')
+				return bad("%s needs a file", "--config");
+			o.config_path = v;
+		} else {
+			return unknown_opt(argv[i], 0);
+		}
+	}
+	return gs_cmd_report(&o);
+}
+
 /* Mutating commands never take a diagnostic root or config: name what they act on instead. */
 static int reject_diag_opts(int argc, char **argv)
 {
@@ -373,6 +405,8 @@ int main(int argc, char **argv)
 	}
 	if (strcmp(cmd, "status") == 0)
 		return status_main(argc, argv);
+	if (strcmp(cmd, "report") == 0)
+		return report_main(argc, argv);
 	if (strcmp(cmd, "check") == 0) {
 		struct gs_activate_opts o;
 

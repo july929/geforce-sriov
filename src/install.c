@@ -620,6 +620,8 @@ void gs_install_next(const struct gs_config *cfg, int from_setup)
 		       "display GPU; activation restarts the display manager it stopped.\n");
 	if (!from_setup)
 		printf("After the boot, `geforce-sriov status` shows each GPU and its next step.\n");
+	if (!from_setup)
+		printf("A compatibility report helps other users. After the power cycle and a first VM, run `sudo geforce-sriov report`.\n");
 }
 
 /* The supported VM autostart units this package orders after activation; unrelated ones stay untouched. */

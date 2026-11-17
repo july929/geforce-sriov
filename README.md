@@ -83,7 +83,7 @@ flowchart TD
 >
 > Please submit a
 > [compatibility report](https://github.com/noon-at-cgn/geforce-sriov/issues/new?template=compatibility-report.yml)
-> to help verify more hardware, whether it works or not.
+> to help verify more hardware, whether it works or not. Run `sudo geforce-sriov report` and paste its output into the form.
 
 ## Safety and reversibility
 

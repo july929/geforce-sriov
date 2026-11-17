@@ -15,6 +15,8 @@ static struct gs_livepatch_opts captured_livepatch;
 int gs_cmd_devices(void) { return 0; }
 int gs_hostcheck(const struct gs_diag_opts *o, enum gs_hostcheck_mode m) { (void)o; (void)m; return 0; }
 int gs_cmd_status(const struct gs_diag_opts *o) { (void)o; return 0; }
+static struct gs_report_opts captured_report;
+int gs_cmd_report(const struct gs_report_opts *o) { captured_report = *o; return 0; }
 int gs_cmd_install(const struct gs_install_opts *o) { captured_install = *o; return 0; }
 int gs_cmd_setup(const struct gs_install_opts *o, enum gs_prompt p)
 {
@@ -51,6 +53,11 @@ static void test_cli(void)
 	char *dry_vfs[] = { "gs", "install", "--dry-run", "--vfs", "4" };
 	char *dry_dest[] = { "gs", "install", "--dry-run", "--destdir", "/x" };
 	char *doctor[] = { "gs", "doctor" };
+	char *report[] = { "gs", "report" };
+	char *report_out[] = { "gs", "report", "--out", "/tmp/r.txt" };
+	char *report_root[] = { "gs", "report", "--sysfs-root", "/", "--config", "/cfg" };
+	char *report_vfs[] = { "gs", "report", "--vfs", "4" };
+	char *report_noout[] = { "gs", "report", "--out" };
 	assert(gs_cli_main(9, setup) == 0);
 	assert(captured_install.display_set && captured_install.display == GS_DISPLAY_ON);
 	assert(captured_install.host_cuda_set && captured_install.host_cuda);
@@ -70,6 +77,11 @@ static void test_cli(void)
 	assert(gs_cli_main(6, dry) == 0 && captured_install.dry_run && captured_install.disable_d3cold && captured_install.ndevices == 1);
 	assert(gs_cli_main(5, dry_vfs) == GS_EXIT_USAGE && gs_cli_main(5, dry_dest) == GS_EXIT_USAGE);
 	assert(gs_cli_main(2, doctor) == GS_EXIT_USAGE);
+	/* report: no option but the output file (and status's diagnostic root and config). */
+	assert(gs_cli_main(2, report) == 0 && !captured_report.out_path && !captured_report.sysroot);
+	assert(gs_cli_main(4, report_out) == 0 && !strcmp(captured_report.out_path, "/tmp/r.txt"));
+	assert(gs_cli_main(6, report_root) == 0 && !strcmp(captured_report.sysroot, "/") && !strcmp(captured_report.config_path, "/cfg"));
+	assert(gs_cli_main(4, report_vfs) == GS_EXIT_USAGE && gs_cli_main(3, report_noout) == GS_EXIT_USAGE);
 	/* setup's mark on the install it runs. */
 	assert(gs_cli_main(3, from_setup) == 0 && captured_install.from_setup);
 	assert(gs_cli_main(2, plain_install) == 0 && !captured_install.from_setup);

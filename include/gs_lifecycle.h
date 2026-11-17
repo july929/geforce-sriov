@@ -422,6 +422,36 @@ int gs_hostcheck(const struct gs_diag_opts *opts, enum gs_hostcheck_mode mode);
 int gs_cmd_status(const struct gs_diag_opts *opts);
 
 /*
+ * report: the host, the GPUs, the driver, the settings, `status`, the host checks and the kernel log in one
+ * block with private details removed, printed (or written to out_path). sysroot, config_path: as for status.
+ */
+struct gs_report_opts {
+	const char *sysroot;
+	const char *config_path;
+	const char *out_path;
+};
+int gs_cmd_report(const struct gs_report_opts *opts);
+
+/* What report removes: names of this host and its people, and a count of every kind of removal. */
+#define GS_REDACT_NAMES 32
+struct gs_redactor {
+	char host[GS_REDACT_NAMES][64], user[GS_REDACT_NAMES][64];
+	unsigned int nhost, nuser;
+	unsigned int n_ip, n_mac, n_uuid, n_serial, n_name, n_licence;
+};
+void gs_redactor_init(struct gs_redactor *r);
+void gs_redactor_add_host(struct gs_redactor *r, const char *name);
+void gs_redactor_add_user(struct gs_redactor *r, const char *name);
+/* The host name and the people's accounts of this machine. */
+void gs_redactor_collect(struct gs_redactor *r);
+/* text without private details, one line at a time; malloc'd, the caller frees it. */
+char *gs_redact(struct gs_redactor *r, const char *text);
+/* The last max lines of log naming geforce_sriov, NVRM or AER; omitted counts the earlier ones. malloc'd. */
+char *gs_report_log_filter(const char *log, unsigned int max, unsigned int *omitted);
+/* The report before redaction; malloc'd. */
+char *gs_report_body(const struct gs_report_opts *o);
+
+/*
  * Where prepare reads and writes: gs_host_live, or a fixture tree with a simulated kernel behind
  * write_attr and run (tests).
  * Deadline callbacks execute one operation, returning -ETIMEDOUT when its

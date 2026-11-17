@@ -22,7 +22,7 @@ DEVICES ?=
 VFS ?=
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
-CLI_SRCS := src/activate.c src/config.c src/hostinfo.c src/install.c src/nvpackage.c src/dkms.c src/nvlibs.c src/uninstall.c src/lifecycle.c src/loadedpatch.c src/hostcheck.c src/status.c src/check.c src/modules.c src/notify.c src/pci.c src/setup.c src/sha256.c src/unselected.c src/util.c
+CLI_SRCS := src/activate.c src/config.c src/hostinfo.c src/install.c src/nvpackage.c src/dkms.c src/nvlibs.c src/uninstall.c src/lifecycle.c src/loadedpatch.c src/hostcheck.c src/status.c src/report.c src/check.c src/modules.c src/notify.c src/pci.c src/setup.c src/sha256.c src/unselected.c src/util.c
 # The confirmed NVIDIA versions: one table, read by the driver step as it is and turned into the
 # CLI's rows here, so that a version is added in one place.
 VERSIONS_TBL := scripts/gs-driver-versions.tbl

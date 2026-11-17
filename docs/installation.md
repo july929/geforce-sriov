@@ -198,6 +198,12 @@ A first run prints `activation finished` above these lines.
 The run after a power cycle prints `Every selected VF is ready. Nothing to bring up.` below them, then `Guest drivers:` with the versions for your card.
 A line that begins with `NOT READY` means start no VM yet ([If something goes wrong](recovery.md#if-something-goes-wrong)).
 
+At the start, `setup` says that a compatibility report after the install helps other users.
+At the end it asks `Create a compatibility report now? [y/N]`.
+Yes runs `geforce-sriov report --out /root/geforce-sriov-report.txt` and prints the file and the link to the form.
+No, or a run without a terminal or with `--no-prompt`, prints the command `sudo geforce-sriov report` and the link instead.
+See [Compatibility reports](compatibility.md) for what the report holds.
+
 Repeating the first command is safe. Once installed, `setup` ignores `--driver-file`, `--vfs`, `--nvidia-source` and `--driver=skip`.
 A `--device` selection that differs from the config is refused.
 On an installed host, `setup` asks for D3cold consent before its checks if the config lacks it and a laptop GPU is selected.

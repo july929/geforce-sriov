@@ -119,6 +119,7 @@ Ampere cards get no such line.
 |---|---|---|
 | [`geforce-sriov devices`](#devices) | no | Print the device table |
 | [`geforce-sriov status`](#status) | no | Show card state, host checks and next steps |
+| [`geforce-sriov report`](#report) | optional | Print one block with your host, GPUs, settings and logs, without private details, for a compatibility report. Without root the kernel log and some checks are missing |
 | [`geforce-sriov setup`](#setup) | yes | Run the guided setup |
 | [`geforce-sriov install`](#install) | yes | Install files and driver changes |
 | [`geforce-sriov install --dry-run`](#install---dry-run) | no | Check the host for an install and change nothing |
@@ -217,6 +218,18 @@ See [`status` and `install --dry-run`](technical-reference.md#status-and-install
   `host CUDA libraries:` reports the same for host CUDA ([Host CUDA](installation.md#host-cuda)).
 - `kernel hook: the automatic build for kernel ... failed (...); run ...`: the build that runs when a kernel is installed failed.
   Run the command the line names, `sudo geforce-sriov rebuild --kernel RELEASE` ([`rebuild`](#rebuild)).
+
+### report
+
+`geforce-sriov report [--out FILE]` collects what a [compatibility report](compatibility.md) asks for and prints it as one block to paste.
+It changes nothing on the host.
+
+- Run it with `sudo`. Without root it still runs, but the kernel log and some checks are missing.
+- `--out FILE` writes the block to `FILE` instead of printing it.
+- The block holds the host, the GPUs, the driver, your changed settings, the `status` output, the host checks of `install --dry-run` and the relevant kernel log lines.
+- The command removes IP and MAC addresses, serial numbers, GPU UUIDs, host and user names and licence details first. The top of the block says what was removed.
+
+See [Compatibility reports](compatibility.md#make-the-report) for the contents and how to post it.
 
 ### setup
 

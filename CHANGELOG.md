@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `geforce-sriov report` collects what a compatibility report needs, removes private details and prints one block to paste into the form. `setup` offers to create it when it ends. See [Compatibility reports](docs/compatibility.md).
+
 ## [0.4.2] - 2026-11-15
 
 ### Fixed

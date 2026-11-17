@@ -1259,7 +1259,46 @@ static int first_install(const struct gs_setup_host *s, const char *self, const 
 	return finish(s, self, &cfg);
 }
 
-int gs_setup(const struct gs_setup_host *s, const struct gs_install_opts *o)
+/* Where the report of a setup is written: the root user's home, where the person who ran setup finds it. */
+#define REPORT_FILE "/root/geforce-sriov-report.txt"
+#define REPORT_FORM "https://github.com/noon-at-cgn/geforce-sriov/issues/new?template=compatibility-report.yml"
+
+static void report_form_hint(void)
+{
+	printf("Post it with the compatibility report form: %s\n", REPORT_FORM);
+}
+
+/*
+ * After a finished setup: ask whether to create the compatibility report now. Without a question
+ * (--no-prompt, no terminal, the end of input) it only names the command.
+ */
+static void offer_report(const struct gs_setup_host *s, const char *self)
+{
+	int yes = 0;
+
+	printf("\nA compatibility report helps other users. The most useful one comes after the power cycle and a first VM.\n"
+	       "A report taken now says \"not yet activated\" and is fine to keep for later.\n");
+	if (s->in >= 0)
+		yes = ask_default_no(s, "Create a compatibility report now? [y/N]",
+				     "yes writes it to " REPORT_FILE "; no shows the command to run later", NULL) == 1;
+	if (!yes) {
+		printf("To create it later, run: sudo geforce-sriov report\n");
+		report_form_hint();
+		return;
+	}
+	{
+		const char *argv[] = { "--out", REPORT_FILE, NULL };
+
+		if (step(s->h, self, "report", argv) != GS_EXIT_OK) {
+			printf("The report could not be created. To try again later, run: sudo geforce-sriov report\n");
+			return;
+		}
+	}
+	printf("The report is in %s. Private details are already removed.\n", REPORT_FILE);
+	report_form_hint();
+}
+
+static int setup_flow(const struct gs_setup_host *s, const struct gs_install_opts *o)
 {
 	const char *path = s->config ? s->config : gs_config_path();
 	char self[GS_PATH_MAX];
@@ -1267,6 +1306,13 @@ int gs_setup(const struct gs_setup_host *s, const struct gs_install_opts *o)
 	if (self_path(self, sizeof(self)))
 		return GS_EXIT_FAIL;
 	printf("geforce-sriov %s setup\n", GS_VERSION);
+	{
+		const char *dd = getenv("DESTDIR");
+
+		if (!dd || !dd[0])
+			printf(s->in >= 0 ? "A compatibility report after the install helps other users. Setup offers to create one at the end.\n" :
+			       "A compatibility report after the install helps other users. Setup names the command for it at the end.\n");
+	}
 	{
 		const char *dd = getenv("DESTDIR");
 		const char *root = dd && dd[0] ? dd : s->h->root ? s->h->root : "";
@@ -1288,6 +1334,17 @@ int gs_setup(const struct gs_setup_host *s, const struct gs_install_opts *o)
 		return GS_EXIT_REFUSED;
 	}
 	return installed_host(s, self, path, o);
+}
+
+int gs_setup(const struct gs_setup_host *s, const struct gs_install_opts *o)
+{
+	const char *dd = getenv("DESTDIR");
+	char self[GS_PATH_MAX];
+	int r = setup_flow(s, o);
+
+	if (r == GS_EXIT_OK && (!dd || !dd[0]) && !self_path(self, sizeof(self)))
+		offer_report(s, self);
+	return r;
 }
 
 /* NVIDIA's kernel tree where the preflight looks for it, or its vGPU userspace where install looks. */

@@ -5334,6 +5334,139 @@ static void test_cli_smoke(void)
 	free(out);
 }
 
+/* report removes the private details of a text and keeps what a reader needs. */
+static void test_report_redact(void)
+{
+	struct gs_redactor r;
+	char *out;
+	const char *in =
+		"ip 192.168.1.20 and 10.0.0.46:8080 and 2001:db8::1 and fe80::1ff:fe23:4567:890a\n"
+		"mac aa:bb:cc:dd:ee:ff and AA-BB-CC-DD-EE-FF\n"
+		"uuid GPU-12345678-1234-1234-1234-123456789abc and MIG-12345678-1234-1234-1234-123456789abc\n"
+		"Serial Number : 1424723012345\n"
+		"board serial=0324\n"
+		"serial\n"
+		"host labbox and labbox.example.com and user alice in /home/alice/x and alice-pc\n"
+		"ServerAddress=lic.example.com\n"
+		"Token file /etc/nvidia/ClientConfigToken/client_configuration_token_11-16.tok\n"
+		"licence server 10.1.2.3 refused\n"
+		"run on pve with pve-manager/8.3.2 and kernel 6.8.12-4-pve\n"
+		"keep 0000:03:00.0 10de:2783 580.159.01 7.0.14-16-pve 12:34:56 NVRM: Xid 79 std::string 1.2.3\n";
+
+	gs_redactor_init(&r);
+	gs_redactor_add_host(&r, "labbox.example.com");
+	gs_redactor_add_user(&r, "alice");
+	gs_redactor_add_host(&r, "pve");
+	gs_redactor_add_user(&r, "root");
+	CHECK(r.nhost == 3 && r.nuser == 1, "root is not private, every host name is: %u hosts, %u users", r.nhost, r.nuser);
+	out = gs_redact(&r, in);
+	CHECK(out != NULL, "redact returns text");
+	CHECK(!contains(out, "192.168.1.20") && !contains(out, "10.0.0.46") && !contains(out, "2001:db8") &&
+	      !contains(out, "fe80::") && !contains(out, "10.1.2.3") && r.n_ip == 4, "IP addresses (%u): %s", r.n_ip, out);
+	CHECK(contains(out, "ip <ip> and <ip>:8080 and <ip> and <ip>\n"), "IPs become <ip>: %s", out);
+	CHECK(!contains(out, "aa:bb:cc") && !contains(out, "AA-BB-CC") && r.n_mac == 2 && contains(out, "mac <mac> and <mac>\n"),
+	      "MAC addresses (%u): %s", r.n_mac, out);
+	CHECK(!contains(out, "12345678-1234") && r.n_uuid == 2 && contains(out, "uuid <uuid> and <uuid>\n"),
+	      "GPU UUIDs (%u): %s", r.n_uuid, out);
+	CHECK(!contains(out, "1424723012345") && !contains(out, "0324") && r.n_serial == 3 &&
+	      contains(out, "Serial Number : <serial removed>\n") && contains(out, "board serial= <serial removed>\n") &&
+	      contains(out, "\n<serial line removed>\n"), "serial numbers (%u): %s", r.n_serial, out);
+	CHECK(!contains(out, "labbox") && !contains(out, "alice ") && !contains(out, "/alice/") &&
+	      contains(out, "host <hostname> and <hostname> and user <user> in /home/<user>/x and alice-pc\n") &&
+	      contains(out, "run on <hostname> with pve-manager/8.3.2 and kernel 6.8.12-4-pve\n") && r.n_name == 5,
+	      "host and user names (%u): %s", r.n_name, out);
+	CHECK(!contains(out, "lic.example.com") && !contains(out, "client_configuration_token") && r.n_licence == 3 &&
+	      contains(out, "<licence line removed>\n<licence line removed>\n<licence line removed>\n"),
+	      "licence lines (%u): %s", r.n_licence, out);
+	CHECK(contains(out, "keep 0000:03:00.0 10de:2783 580.159.01 7.0.14-16-pve 12:34:56 NVRM: Xid 79 std::string 1.2.3\n"),
+	      "PCI addresses, IDs and versions stay: %s", out);
+	free(out);
+}
+
+static void test_report_log_filter(void)
+{
+	char log[4096] = "";
+	unsigned int omitted = 99;
+	char *out;
+
+	for (int i = 0; i < 10; i++) {
+		char line[128];
+
+		snprintf(line, sizeof(line), "[%d.0] unrelated line %d\n", i, i);
+		strcat(log, line);
+		snprintf(line, sizeof(line), "[%d.1] NVRM: line %d\n", i, i);
+		strcat(log, line);
+	}
+	strcat(log, "[11.0] pcieport 0000:00:03.0: AER: Corrected error received\n[12.0] geforce_sriov: loaded\n");
+	out = gs_report_log_filter(log, 3, &omitted);
+	CHECK(omitted == 9 && contains(out, "NVRM: line 9\n") && contains(out, "AER: Corrected") &&
+	      contains(out, "geforce_sriov: loaded\n") && !contains(out, "NVRM: line 8") && !contains(out, "unrelated"),
+	      "the last 3 matching lines, %u left out: %s", omitted, out);
+	free(out);
+	out = gs_report_log_filter("nothing here\n", 5, &omitted);
+	CHECK(omitted == 0 && out[0] == '\0', "no matching line gives no text");
+	free(out);
+}
+
+/* The command through the built CLI on a fixture host: structure, options and the output file. */
+static void test_report_command(void)
+{
+	char root[GS_PATH_MAX], cfg[GS_PATH_MAX], file[GS_PATH_MAX], *out, *saved;
+	const char *rep[] = { "report", "--sysfs-root", root, "--config", cfg, NULL };
+	const char *to_file[] = { "report", "--sysfs-root", root, "--config", cfg, "--out", file, NULL };
+	const char *bad_opt[] = { "report", "--vfs", "4", NULL };
+	const char *no_out[] = { "report", "--out", NULL };
+	static const char *const sections[] = { "== Host ==", "== GPUs ==", "== Software and settings ==",
+		"== geforce-sriov status ==", "== geforce-sriov install --dry-run (the host checks) ==", "== Kernel log" };
+
+	fixture("report", &topo_default, gpu_ampere, 0, NULL, root, sizeof(root));
+	gs_pathf(cfg, sizeof(cfg), "%s/config", root);
+	gs_pathf(file, sizeof(file), "%s/report.txt", root);
+	writef(cfg, "bdfs=0000:03:00.0\nvfs=2\n");
+	CHECK(run_cli(&out, NULL, rep) == GS_EXIT_OK && !strncmp(out, "~~~text\ngeforce-sriov compatibility report (geforce-sriov ", 58),
+	      "report starts with a fence and a header: %s", out);
+	CHECK(contains(out, "Removed before this report was written: IP addresses (") && contains(out, "licence lines (") &&
+	      contains(out, "Not included: anything from inside the guests"), "the header says what was removed: %s", out);
+	for (size_t i = 0; i < sizeof(sections) / sizeof(sections[0]); i++)
+		CHECK(contains(out, sections[i]), "report has the section %s: %s", sections[i], out);
+	CHECK(contains(out, "\nState: installed, not yet activated (a power cycle may be pending), VFs: 0, VMs using a VF now: none\n\n== Host =="),
+	      "the state line comes first: %s", out);
+	{
+		char aroot[GS_PATH_MAX], acfg[GS_PATH_MAX], *aout;
+		const char *arep[] = { "report", "--sysfs-root", aroot, "--config", acfg, NULL };
+
+		fixture("report-active", &topo_default, gpu_ampere, 0, "2/4", aroot, sizeof(aroot));
+		gs_pathf(acfg, sizeof(acfg), "%s/config", aroot);
+		writef(acfg, "bdfs=0000:03:00.0\n");
+		CHECK(run_cli(&aout, NULL, arep) == GS_EXIT_OK &&
+		      contains(aout, "\nState: active, VFs: 2 on 0000:03:00.0, VMs using a VF now: not checked (diagnostic root)\n\n== Host =="),
+		      "active state: %s", aout);
+		free(aout);
+		unlink(acfg);
+		CHECK(run_cli(&aout, NULL, arep) == GS_EXIT_OK &&
+		      contains(aout, "\nState: not installed (no config file), VFs: 0, VMs using a VF now: none\n\n== Host =="),
+		      "not installed state: %s", aout);
+		free(aout);
+	}
+	CHECK(contains(out, "GPU 0000:03:00.0\n  PCI ID: 10de:") && contains(out, "  boot display: ") &&
+	      contains(out, "  generation: Ampere\n") && contains(out, "settings changed from the defaults (config: bdfs=0000:03:00.0, vfs=2)") &&
+	      contains(out, "VFs per card: 2 (set in the config)") && contains(out, "(exit status "),
+	      "report lists the GPU, the settings and the command outputs: %s", out);
+	CHECK(strlen(out) > 7 && !strcmp(out + strlen(out) - 5, "\n~~~\n"), "report ends with the closing fence: %s", out);
+	saved = out;
+	CHECK(run_cli(&out, NULL, to_file) == GS_EXIT_OK && contains(out, "Report written to ") && !contains(out, "== Host =="),
+	      "--out prints only where the report went: %s", out);
+	free(out);
+	out = slurp(file);
+	CHECK(out && strncmp(out, "~~~text\n", 8) == 0 && contains(out, "== GPUs =="), "--out writes the report: %s", out ? out : "(none)");
+	free(out);
+	free(saved);
+	CHECK(run_cli(&out, NULL, bad_opt) == GS_EXIT_USAGE && contains(out, "--vfs"), "report takes no VF option: %s", out);
+	free(out);
+	CHECK(run_cli(&out, NULL, no_out) == GS_EXIT_USAGE && contains(out, "--out needs a file"), "--out needs a file: %s", out);
+	free(out);
+}
+
 /* Exit 5 always leaves the guard set: a module load that did not finish is uncertain state. */
 static void test_activate_exit5_guard(void)
 {
@@ -6973,6 +7106,70 @@ static void setup_opts(struct gs_install_opts *o, const char *driver)
 	o->driver_file = driver;
 	o->accept_nvidia_license = 1; /* so the version question, not the licence one, comes first */
 	o->ndevices = 1;
+}
+
+/* The end of setup offers the compatibility report: a question on a terminal, a reminder without one. */
+static void test_setup_report_offer(void)
+{
+	char root[GS_PATH_MAX], pkg[GS_PATH_MAX], cfg[GS_PATH_MAX], *out, *steps;
+	struct gs_install_opts o;
+	static const char form[] = "https://github.com/noon-at-cgn/geforce-sriov/issues/new?template=compatibility-report.yml";
+
+	snprintf(root, sizeof(root), "%s/offer-setup", tmp);
+	make_card(root, &topo_default, gpu_ampere, 0, NULL);
+	sim_reset(root);
+	sim_writef("proc/driver/nvidia/version",
+		   "NVRM version: NVIDIA UNIX x86_64 Kernel Module  580.159.01  Release Build\n");
+	gs_pathf(pkg, sizeof(pkg), "%s/NVIDIA-Linux-x86_64-580.159.01-vgpu-kvm.run", root);
+	writef(pkg, "#!/bin/sh\nexit 0\n");
+	gs_pathf(cfg, sizeof(cfg), "%s/config", root);
+	gs_pathf(setup_log, sizeof(setup_log), "%s/setup.log", root);
+	writef(cfg, "bdfs=0000:03:00.0\n");
+	setup_write_config = NULL;
+	setup_opts(&o, pkg);
+	gs_addr_parse("0000:03:00.0", &o.devices[0]);
+
+	/* No prompt: the start line and a reminder with the command and the form, no question and no report. */
+	unlink(setup_log);
+	CHECK(run_setup(root, NULL, &o, 0, cfg, NULL, &out) == GS_EXIT_OK &&
+	      contains(out, "A compatibility report after the install helps other users. Setup names the command for it at the end.\n") &&
+	      contains(out, "The most useful one comes after the power cycle and a first VM.") &&
+	      contains(out, "fine to keep for later.") &&
+	      contains(out, "To create it later, run: sudo geforce-sriov report\n") && contains(out, form) &&
+	      !contains(out, "Create a compatibility report now?"), "no-prompt reminder: %s", out);
+	steps = slurp(setup_log);
+	CHECK(!steps || !contains(steps, " report"), "no-prompt runs no report: %s", steps ? steps : "");
+	free(steps);
+	free(out);
+
+	/* Yes: the question, the report step with the file, the file's path and the form. */
+	unlink(setup_log);
+	CHECK(run_setup(root, "y\n", &o, 0, cfg, NULL, &out) == GS_EXIT_OK &&
+	      contains(out, "Setup offers to create one at the end.") &&
+	      contains(out, "Create a compatibility report now? [y/N]") &&
+	      contains(out, "== report\n") &&
+	      contains(out, "The report is in /root/geforce-sriov-report.txt. Private details are already removed.\n") &&
+	      contains(out, form) && !contains(out, "To create it later"), "yes creates the report: %s", out);
+	steps = slurp(setup_log);
+	CHECK(steps && contains(steps, "R ") && contains(steps, " report --out /root/geforce-sriov-report.txt"),
+	      "yes runs report --out: %s", steps ? steps : "");
+	free(steps);
+	free(out);
+
+	/* No, an empty answer and the end of input: the command and the form, no report. */
+	for (size_t i = 0; i < 3; i++) {
+		static const char *const answers[] = { "n\n", "\n", "" };
+
+		unlink(setup_log);
+		CHECK(run_setup(root, answers[i], &o, 0, cfg, NULL, &out) == GS_EXIT_OK &&
+		      contains(out, "Create a compatibility report now? [y/N]") &&
+		      contains(out, "To create it later, run: sudo geforce-sriov report\n") && contains(out, form) &&
+		      !contains(out, "The report is in"), "answer %zu leaves the report for later: %s", i, out);
+		steps = slurp(setup_log);
+		CHECK(!steps || !contains(steps, " report"), "answer %zu runs no report: %s", i, steps ? steps : "");
+		free(steps);
+		free(out);
+	}
 }
 
 static void test_version_setup(void)
@@ -9607,6 +9804,10 @@ int main(int argc, char **argv)
 	RUN(test_activate_handoff_vfs);
 	RUN(test_activate_stops);
 	RUN(test_cli_smoke);
+	RUN(test_report_redact);
+	RUN(test_report_log_filter);
+	RUN(test_report_command);
+	RUN(test_setup_report_offer);
 	RUN(test_driver_result);
 	RUN(test_activate_write_timeouts);
 	RUN(test_enable_prereq);
