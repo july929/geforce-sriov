@@ -30,6 +30,18 @@ flowchart LR
 
 See the [FAQ](docs/faq.md) for answers to common questions.
 
+
+> [!IMPORTANT]
+> geforce-sriov is **NOT** a firmware flasher or a licensing tool. It does not distribute any NVIDIA
+> software.
+
+> [!NOTE]
+> **Status: beta.** Ampere and Ada GPUs are supported. See [supported cards](docs/devices.md#generations).
+>
+> Please submit a
+> [compatibility report](https://github.com/noon-at-cgn/geforce-sriov/issues/new?template=compatibility-report.yml)
+> to help verify more hardware, whether it works or not. Run `sudo geforce-sriov report` and paste its output into the form.
+
 ## Screenshots
 
 <table>
@@ -90,18 +102,6 @@ flowchart TD
     TOOL --> HOOK --> ID
     TOOL --> PATCH --> DRV
 ```
-
-> [!IMPORTANT]
-> geforce-sriov is **NOT** a vBIOS flasher or a licensing tool. It does not distribute any NVIDIA
-> software.
-
-> [!NOTE]
-> **Status: beta.** Ampere and Ada GPUs are supported. See [supported cards](docs/devices.md#generations).
-> Expect a lot of changes while geforce-sriov is in beta. To upgrade, [uninstall geforce-sriov completely](#upgrading-from-an-earlier-version) and power the machine off and on. Then install the new version fresh. See [Upgrading](docs/installation.md#upgrading).
->
-> Please submit a
-> [compatibility report](https://github.com/noon-at-cgn/geforce-sriov/issues/new?template=compatibility-report.yml)
-> to help verify more hardware, whether it works or not. Run `sudo geforce-sriov report` and paste its output into the form.
 
 ## Safety and reversibility
 
