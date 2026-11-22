@@ -14,7 +14,7 @@
 # gs_version_row VERSION
 #   Sets the gs_* names of the block of host version VERSION: gs_host_version,
 #   gs_host_package, the object and plugin digests, gs_object_chain,
-#   gs_object_chain_display and gs_plugin_chain, gs_plain_offsets, the second package and
+#   gs_object_chain_display and gs_plugin_chain, the second package and
 #   public source identities and the evidence profiles. Returns 1, with every name empty,
 #   for a version that has no block: such a version has no recorded digest and is built
 #   best effort.
@@ -127,9 +127,8 @@ _gs_refuse() {
 _gs_row_clear() {
     gs_host_version='' gs_host_package=''
     gs_stock_object='' gs_scheduler_object='' gs_gate_object='' gs_patched_object='' gs_display_object=''
-    gs_placement_object='' gs_placement_display_object='' gs_placement_offsets=''
+    gs_placement_object='' gs_placement_display_object=''
     gs_stock_plugin='' gs_mixed_plugin='' gs_patched_plugin=''
-    gs_plain_offsets=''
     gs_second_version='' gs_second_grid='' gs_second_consumer='' gs_public_version=''
     gs_profile_plain='' gs_profile_display='' gs_profile_display_cuda=''
     gs_object_chain='' gs_object_chain_display='' gs_object_chain_placement_display='' gs_plugin_chain=''
@@ -160,11 +159,9 @@ gs_version_row() {
             display_object) gs_display_object=$_gs_value ;;
             placement_object) gs_placement_object=$_gs_value ;;
             placement_display_object) gs_placement_display_object=$_gs_value ;;
-            placement_offsets) gs_placement_offsets=$_gs_value ;;
             stock_plugin) gs_stock_plugin=$_gs_value ;;
             mixed_plugin) gs_mixed_plugin=$_gs_value ;;
             patched_plugin) gs_patched_plugin=$_gs_value ;;
-            plain_offsets) gs_plain_offsets=$_gs_value ;;
             second) gs_second_version=$_gs_value ;;
             second_grid) gs_second_grid=$_gs_value ;;
             second_consumer) gs_second_consumer=$_gs_value ;;
@@ -181,30 +178,6 @@ gs_version_row() {
     done <<EOF
 $_gs_row
 EOF
-    # The plain build's module is compared at these offsets as text, so they have one spelling.
-    for _gs_field in plain_offsets:eight:8 placement_offsets:one:1; do
-        _gs_name=${_gs_field%%:*} _gs_want=${_gs_field##*:} _gs_word=${_gs_field#*:} _gs_word=${_gs_word%:*}
-        eval "_gs_list=\$gs_$_gs_name"
-        _gs_count=0 _gs_last=-1
-        for _gs_at in $_gs_list; do
-            case $_gs_at in
-                0x*[!0-9a-f]*|0x) _gs_last=bad ;;
-                0x*) [ "$(printf '0x%x' "$((_gs_at))")" = "$_gs_at" ] && [ "$((_gs_at))" -gt "$_gs_last" ] || _gs_last=bad ;;
-                *) _gs_last=bad ;;
-            esac
-            [ "$_gs_last" != bad ] || break
-            _gs_last=$((_gs_at)) _gs_count=$((_gs_count + 1))
-        done
-        if [ -n "$_gs_list" ] && { [ "$_gs_last" = bad ] || [ "$_gs_count" -ne "$_gs_want" ]; }; then
-            _gs_row_clear
-            if [ "$_gs_want" -eq 1 ]; then
-                _gs_refuse "the table of confirmed versions: $_gs_name of $1 must be one offset, written as 0x and lowercase hexadecimal digits"
-            else
-                _gs_refuse "the table of confirmed versions: $_gs_name of $1 must be $_gs_word ascending offsets, each written as 0x and lowercase hexadecimal digits"
-            fi
-            return 3
-        fi
-    done
     # The chains in revision order, both endpoints included. A block that lacks one digest of a
     # chain has no such chain, and nothing is confirmed against it.
     if [ -n "$gs_stock_object" ] && [ -n "$gs_scheduler_object" ] && [ -n "$gs_gate_object" ] && [ -n "$gs_patched_object" ]; then

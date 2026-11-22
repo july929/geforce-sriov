@@ -26,18 +26,10 @@
 #                         chain of a display build without an Ada card
 #   placement_object      ... after the ada-placement row, which takes patched_object as its input: the
 #                         final object of a plain build with an Ada card selected
-#   placement_offsets     the one .text offset, zero-based, at which the module of a build with an Ada
-#                         card selected differs from the plain build's, written as plain_offsets is.
-#                         Not measured on a built module: the object's .text is linked into
-#                         nvidia.ko at a fixed distance, which the three plain sites of this block
-#                         fix (object file offset - 0x40 + 0x241c0); the step refuses an Ada build
-#                         whose module differs anywhere else
 #   stock_plugin          SHA-256 of libnvidia-vgpu.so.<host>, unchanged
 #   mixed_plugin          ... after plugin-mixed: the input of plugin-div4, an intermediate that is
 #                         never installed
 #   patched_plugin        ... after plugin-div4: the only copy that is installed
-#   plain_offsets         the eight .text offsets, zero-based, ascending, as 0x<lowercase hex>, at
-#                         which the plain build's module differs from NVIDIA's
 #   second                the version of the second package (display and host CUDA builds)
 #   second_grid           SHA-256 of that package as the vGPU guest driver (.run)
 #   second_consumer       SHA-256 of that package as the GeForce driver (.run)
@@ -71,11 +63,9 @@ patched_object=946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29
 display_object=83ce12abba0441812aa135d4f099636513d709090c3da8999cda9243bd3b67ff
 placement_object=20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157
 placement_display_object=48fd6ddd2df13a1131a98facd4a80be1d6d17877eb900f3c945dfa483347627b
-placement_offsets=0xf7c06
 stock_plugin=7e52b76dc7ca8490e7ffbc1fd724f5db07f3791a3a2ec07f2d595bf05abdcaa7
 mixed_plugin=7ddfad458bbfdb0c4d6902a9e045bd15c84f63aea19314f3d3a60967224b73c6
 patched_plugin=aa4fdeb5288b5e56e7d4972466813d78e10cfb428fcf62fb53b84fec718cf07c
-plain_offsets=0x14a7c4 0x14a7c5 0x14a7c6 0x14a7c7 0xa16708 0xa16709 0xd8966f 0xd89670
 second=580.159.03
 second_grid=8de9c10cfda77a89a8056acec476c13549f8f6dc7c7f9675da38dc9a73208a81
 second_consumer=32c85d99b0f640c9501f61b39ddad208fd0288d015c4fbc5fd0435c07783fa77

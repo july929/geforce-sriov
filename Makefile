@@ -5,7 +5,7 @@
 #   driver/geforce-sriov-patch     driver patcher      (driver/)
 #   kernel/geforce_sriov.ko        livepatch module    (kernel/Makefile, `make module`)
 
-VERSION := 0.4.3
+VERSION := 0.4.4
 
 CC ?= cc
 CFLAGS ?= -O2 -g
@@ -42,7 +42,7 @@ DRIVER_FIXTURE := tests/fixtures-driver/test-driver.sh
 FIXTURES := $(filter-out $(DRIVER_FIXTURE),$(wildcard tests/fixtures-driver/test-*.sh tests/hw/test-*.sh))
 DRIVER_SHARDS := 1 2 3 4
 DRIVER_SHARD_SUITES := $(addprefix test-driver.sh@,$(DRIVER_SHARDS))
-CASE_SHARD_1 := earlier_cap_record plain restore_gone stock_replaced signed_reinstall restore_modified_and_replaced
+CASE_SHARD_1 := earlier_cap_record plain restore_gone stock_replaced signed_reinstall restore_modified_and_replaced layout_shift
 CASE_SHARD_2 := after_display cuda_libs identity_refused rollback
 CASE_SHARD_3 := placement_elf power_loss kernel_update unknown_anchors
 CASE_SHARD_4 := cuda desktop_libs two_kernels plain_gate cuda_crc_and_provider display second_version signed_reinstall_elf plain_other_version ada_confirmed ada_refusals restore_companion unknown_refused interrupted_commit package_digest

@@ -44,9 +44,8 @@ It then runs these steps in order:
    The build also prints `objtool` warnings about functions in NVIDIA's closed object, such as `_nv000847rm+0x9: call without frame pointer save/setup`.
    They are expected.
 4. For a build without the display modules, compares the code (`.text`) of the build with that of the installed stock module.
-   The two must differ at the eight recorded offsets, plus the one placement offset when an Ada card is selected.
-   See [Compare with a stock build](#compare-with-a-stock-build) for the offsets.
-   For another host driver version the offsets are the ones the patch tool reported for that build.
+   The two must differ at the patch sites, plus the site of the placement change when an Ada card is selected, and nowhere else.
+   See [Compare with a stock build](#compare-with-a-stock-build) for the sites.
    A build with the display modules is checked another way.
    The display revision changes one call in the closed object, after the last host revision and only in a build with the display modules.
    The check that the finished module carries the display revision always runs.
@@ -249,7 +248,7 @@ The tool's table has six rows:
 5. `plugin-div4`: placement change to the patched plugin copy.
 6. `ada-placement`: the object after `vf-count` to the object with the Ada placement change.
    The driver step runs this row only with `--ada-selected`.
-   Without it the row is left out, and a module that carries its one changed `.text` offset, `0xf7c06`, is refused.
+   Without it the row is left out, and a module that carries its one changed byte, in `_nv042355rm` at `+0x7f6`, is refused.
    The row is admitted by digest first.
    An object of another digest is admitted when its 24-byte code window occurs exactly once in `.text`.
    The window is 19 bytes before the changed byte, the byte, and 4 bytes after it.
@@ -348,33 +347,32 @@ cmp -l /var/tmp/stock.text /var/tmp/patched.text
 ```
 
 `cmp -l` prints one line per differing byte: the one-based position in decimal, then the two bytes in octal.
-For a build without display modules, `install` turns each position into a zero-based offset inside `.text`.
-It requires the differing offsets to be exactly these.
-They are recorded for a build of the 580.159.01 tree.
-A build with the display modules is not compared at these offsets.
+For a build without display modules, `install` requires the differing bytes to be exactly the patch sites with exactly the patched bytes.
+It finds each site from the function of NVIDIA's code that holds it, which the patch tool reports for the revision, and the offset inside that function.
+The function is looked up in the symbol table of the built module, so the absolute position of a site in `.text` can differ between kernels.
+A kernel that changes the code compiled before NVIDIA's object moves every site by the same amount, and nothing else changes.
+A build with the display modules is not compared at these sites.
 The check of the display revision always runs.
 Only a confirmed-inputs build must also end at the recorded object chain digest.
-For another host driver version the offsets are the ones the patch tool reported.
-A plain build has the first eight of these offsets.
-A build with an Ada card selected has all nine:
+A plain build has the first three of these sites.
+A build with an Ada card selected has all four:
 
-| `.text` offsets | Stock → built | Revision |
+| Site (function and offset inside it) | Stock → built | Revision |
 |---|---|---|
-| `0x14a7c4`-`0x14a7c7` | `0f b7 45 06` → `31 c0 b0 04` | VF count |
-| `0xa16708`, `0xa16709` | `75 76` → `90 90` | scheduler |
-| `0xd8966f`, `0xd89670` | `75 7f` → `90 90` | probe gate |
-| `0xf7c06` | `01` → `00` | Ada placement change (an Ada card selected only) |
+| `_nv039075rm` + `0x44` | `0f b7 45 06` → `31 c0 b0 04` | VF count |
+| `_nv052453rm` + `0x28` | `75 76` → `90 90` | scheduler |
+| `rm_is_supported_device` + `0x1cf` | `75 7f` → `90 90` | probe gate |
+| `_nv042355rm` + `0x7f6` | `01` → `00` | Ada placement change (an Ada card selected only) |
 
 Any other difference, or `.text` sections of different sizes, means the build is not the expected one.
 The step then refuses before it installs anything and names the first unexpected offset.
-For another host driver version admitted by its anchors, the step compares at the offsets the patch tool reported for that build.
 
 When there is no difference at all, the installed module already is this build.
 The step then checks that these are in place:
 
 - the modprobe file, or another file that sets the option to `0`
 - the patched plugin copy
-- this kernel's backup of the stock module, which differs from the build at exactly the offsets above
+- this kernel's backup of the stock module, which differs from the build at exactly the sites above
 
 If they are, the step writes the record for this kernel and ends without a change to NVIDIA's files.
 A copy from an earlier install with the placement change only is replaced with the patched plugin copy.
@@ -425,7 +423,7 @@ A display build differs from the plain build in these ways:
   `modinfo` shows `gs_client_accept` for a build that has it.
   See [What install adds](installation.md#what-install-adds) for details.
   If that patch does not fit the source, the build goes ahead without it and NVIDIA's graphics libraries are not installed.
-- It does **not** use the eight-offset comparison, because the source patches change `.text` on purpose.
+- It does **not** use the patch-site comparison, because the source patches change `.text` on purpose.
   A build of confirmed inputs must end at the recorded object chain digest, and the finished `nvidia.ko` must carry the display change.
   A display change admitted by its anchors is accepted and recorded as unconfirmed.
 - Its ABI check is the full one.

@@ -26,7 +26,7 @@ The full sequence has five steps:
    It leaves the XML file, the vGPU manager and licensing alone.
 5. On 580.159.01, guest CUDA work can stall because NVIDIA's closed driver object switches off the GPU's scheduler.
    `install` applies the scheduler, probe gate and VF count revisions to a copy of your own `nv-kernel.o_binary`. It applies the two plugin changes to a copy of your own vGPU plugin.
-   It then rebuilds NVIDIA's module. For a build without the display modules, it requires the module's `.text` to differ from the stock module only at the expected offsets. See [Install details](#install-details).
+   It then rebuilds NVIDIA's module. For a build without the display modules, it requires the module's `.text` to differ from the stock module only at the patch sites. See [Install details](#install-details).
    A kernel update runs the patch and rebuild step again by itself. It does this through the kernel hook that `install` places in `/etc/kernel/postinst.d`. The apt snippet covers headers installed after the image. See [After a kernel update](installation.md#after-a-kernel-update).
    No NVIDIA file is distributed here ([driver-patch.md](driver-patch.md)).
 
@@ -219,7 +219,7 @@ A card that was rescanned keeps using the revealed capability until it is remove
 | Path | What it is | License |
 |---|---|---|
 | `geforce-sriov` (`src/`) | CLI: inspection, install, activation, uninstall | MIT |
-| `kernel/geforce_sriov.c` | Livepatch module (DKMS `geforce-sriov/0.4.3`) | GPL-2.0-only OR MIT |
+| `kernel/geforce_sriov.c` | Livepatch module (DKMS `geforce-sriov/0.4.4`) | GPL-2.0-only OR MIT |
 | `hook/libgeforce_sriov.so` | `LD_PRELOAD` identity hook for `nvidia-vgpud` only | MIT |
 | `driver/geforce-sriov-patch` | Patcher for the user's own `nv-kernel.o_binary` | MIT |
 | `systemd/` | `geforce-sriov-livepatch.service`, `geforce-sriov-activate.service`, the `nvidia-vgpud` drop-in and the guest-autostart drop-in | MIT |
@@ -285,7 +285,7 @@ See [What activation does](#what-activation-does) for the step-by-step sequence.
 
 ## Install details
 
-A live install copies the binaries to `--prefix` (default `/usr/local`), the hook to `$PREFIX/lib/geforce-sriov/` and the module source to `/usr/src/geforce-sriov-0.4.3/`. It then runs `dkms add/build/install` and installs the boot units.
+A live install copies the binaries to `--prefix` (default `/usr/local`), the hook to `$PREFIX/lib/geforce-sriov/` and the module source to `/usr/src/geforce-sriov-0.4.4/`. It then runs `dkms add/build/install` and installs the boot units.
 `install` writes:
 
 - in `/var/lib/geforce-sriov/`: `installed-files` with every file it recorded, `format` with the version stamp, and `selection` with the identity of each selected card;
@@ -294,7 +294,7 @@ A live install copies the binaries to `--prefix` (default `/usr/local`), the hoo
 - on a `kernel-install` host without `/etc/kernel/postinst.d`, the plugin `/etc/kernel/install.d/90-geforce-sriov.install`;
 - on a pacman host, the hook `/etc/pacman.d/hooks/90-geforce-sriov.hook`, which runs the hook script with `--retry`;
 - for those last two hosts, the hook script `geforce-sriov-kernel-hook` beside the program;
-- the modprobe files `geforce-sriov-autoload.conf` and, with host CUDA, `geforce-sriov-uvm.conf` ([Modprobe files](installation.md#modprobe-files)). Version 0.4.3 writes no `geforce-sriov-display.conf`.
+- the modprobe files `geforce-sriov-autoload.conf` and, with host CUDA, `geforce-sriov-uvm.conf` ([Modprobe files](installation.md#modprobe-files)). Version 0.4.4 writes no `geforce-sriov-display.conf`.
 
 The driver step writes `driver-build`, `inputs/` and `driver-step.log` in `/var/lib/geforce-sriov/`, and the modprobe file `geforce-sriov-nvidia.conf`. None of them exist with `--driver=skip`.
 The kernel hook creates `kernel-hook-logs/` and `kernel-hook-failed/` in `/var/lib/geforce-sriov/` when it first runs.
@@ -323,9 +323,9 @@ Unless `--driver=skip` is given, a live install then runs the driver step ([What
 - It also refuses before the first write when the module, the kernel headers, a tool or the plugin is missing, or when the `.text` of a module cannot be read.
 - After the build it checks the module.
   A build without the display modules is compared by `.text` with the installed stock module.
-  For a build of 580.159.01 for Ampere only, the differing offsets must be exactly the eight recorded `.text`-relative offsets: `0x14a7c4`-`0x14a7c7`, `0xa16708`, `0xa16709`, `0xd8966f` and `0xd89670`.
-  A build with an Ada card selected adds one more offset, `0xf7c06`, for the Ada placement change.
-  For an unrecorded version the offsets are the ones the patch tool reported for that build.
+  The differing bytes must be exactly the patch sites with exactly the patched bytes.
+  Each revision names the function of NVIDIA's code that holds its site and the offset inside it, and the step finds the function in the built module's symbol table.
+  A build with an Ada card selected adds the site of the Ada placement change.
   Any other difference, or `.text` sections of different sizes, refuses (exit 3) and names the first unexpected offset.
   A display build is not compared by `.text`, because a reviewed source patch changes it on purpose.
   It is checked by the digest of its object chain and by the display revision in the finished module. For a confirmed version, the digest is the recorded endpoint.
@@ -333,7 +333,7 @@ Unless `--driver=skip` is given, a live install then runs the driver step ([What
   The step writes the record of the build for this kernel and exits 0 when all of these hold:
   - the modprobe option is in place;
   - the patched plugin copy is in place;
-  - this kernel's backup of the stock module differs from the build at exactly the expected offsets.
+  - this kernel's backup of the stock module differs from the build at exactly the patch sites.
   It replaces a record that is missing or names another kernel or module.
   A copy from an earlier install with only the placement change counts as in place and is replaced with the patched plugin copy.
   Otherwise it refuses (exit 3) and asks you to reinstall the stock module first. It names `--driver=skip`, which keeps the installed module as it is.
@@ -704,7 +704,7 @@ See [VM video memory](ada.md#vm-video-memory) for the user-facing description.
   It is the immediate of the only store of 1 to `homogeneousPlacementSupported`.
 - The input digest is `946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29`, the output of `vf-count`. The output digest is `20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157`.
   With the display revision on top, the endpoint is `48fd6ddd2df13a1131a98facd4a80be1d6d17877eb900f3c945dfa483347627b`.
-- The one changed `.text` offset of the module is `0xf7c06`.
+- The one changed byte of the module is the one at `_nv042355rm` + `0x7f6`. The step finds it from that function's symbol in the built module.
 
 ### When it runs
 

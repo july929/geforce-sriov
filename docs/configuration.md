@@ -128,7 +128,7 @@ Ampere cards get no such line.
 | [`geforce-sriov check`](#check) | no | Check readiness before VM start |
 | [`geforce-sriov uninstall`](#uninstall) | yes | Remove files and restore stock files |
 | [`geforce-sriov rebuild`](#rebuild) | yes | Build NVIDIA's modules again for a kernel |
-| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.3`, or the usage text |
+| `geforce-sriov --version`, `version`, `help` | no | Print the version, such as `geforce-sriov 0.4.4`, or the usage text |
 | [`geforce-sriov-patch`](#driver-patcher) | no | Inspect, apply or revert driver patches |
 
 Exit codes:
@@ -331,7 +331,7 @@ Options:
 
 It refuses `--prefix`, `--destdir` (or `DESTDIR`), `--source`, `--vfs`, `--ari` and `--msix` (exit 2).
 
-It prints `geforce-sriov 0.4.3: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
+It prints `geforce-sriov 0.4.4: checks before install (sysfs root /sys)`, then one `[OK]`, `[INFO]`, `[WARN]` or `[FAIL]` line per check, and `N failure(s), N warning(s)`.
 It exits 0, or 3 when a line is a `[FAIL]`.
 
 The checks cover:
@@ -498,9 +498,9 @@ See [Driver patcher](driver-patch.md) and [Revisions](driver-patch.md#revisions)
 By default it does ([What install does](driver-patch.md#what-install-does)):
 
 - it patches your own `nv-kernel.o_binary` with the three revisions, or four when an Ada card is selected
-- it rebuilds `nvidia.ko` and requires its `.text` to differ from your stock module at the eight recorded
-  offsets, plus the one placement offset when an Ada card is selected.
-  That comparison applies only to a build without the display modules, of the recorded version. A display build is checked by a digest of the build chain. An unrecorded version is compared at the offsets the patch tool reported.
+- it rebuilds `nvidia.ko` and requires its `.text` to differ from your stock module at the patch sites and nowhere else, with exactly the bytes the patch writes.
+  The sites are found from the symbols of NVIDIA's code in the built module, so a kernel that lays the module out differently does not matter.
+  That comparison applies only to a build without the display modules. A display build is checked by a digest of the build chain.
 - it backs up the stock module and installs the patched one
 - it places the patched plugin copy
 - it writes the GSP-off module option

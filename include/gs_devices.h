@@ -44,7 +44,7 @@
 #ifndef GS_DEVICES_H
 #define GS_DEVICES_H
 
-#define GS_VERSION		"0.4.3"
+#define GS_VERSION		"0.4.4"
 #define GS_VENDOR_NVIDIA	0x10deu
 
 /*

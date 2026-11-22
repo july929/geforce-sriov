@@ -574,14 +574,12 @@ check test "$gs_object_chain" = "$expect_object_chain"
 check test "$gs_object_chain_display" = "$expect_object_chain,$expect_display_object"
 check test "$gs_plugin_chain" = "$expect_plugin_chain"
 check test "$gs_second_version/$gs_second_grid/$gs_second_consumer" = "580.159.03/$second_grid/$second_consumer"
-check test "$gs_plain_offsets" = '0x14a7c4 0x14a7c5 0x14a7c6 0x14a7c7 0xa16708 0xa16709 0xd8966f 0xd89670'
 check test "$gs_placement_object" = 20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157
 check test "$gs_placement_display_object" = "$expect_placement_display_object"
-check test "$gs_placement_offsets" = '0xf7c06'
 rc=0
 gs_version_row 580.159.04 || rc=$?
 check test "$rc" -eq 1
-check test -z "$gs_host_version$gs_host_package$gs_stock_object$gs_object_chain$gs_plugin_chain$gs_plain_offsets$gs_profile_plain"
+check test -z "$gs_host_version$gs_host_package$gs_stock_object$gs_object_chain$gs_plugin_chain$gs_profile_plain"
 check test "$(gs_source_version "$tmp/host")" = 580.159.01
 check test "$(gs_source_version "$tmp/host/kernel")" = 580.159.01
 expect_rc3 gs_source_version "$tmp/no-version"
@@ -596,7 +594,6 @@ digest() { printf '%064d' "$1"; }
     printf 'stock_object=%s\nscheduler_object=%s\ngate_object=%s\npatched_object=%s\n' \
         "$(digest 2)" "$(digest 3)" "$(digest 4)" "$(digest 5)"
     printf 'stock_plugin=%s\nmixed_plugin=%s\npatched_plugin=%s\n' "$(digest 6)" "$(digest 7)" "$(digest 8)"
-    printf 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31\n'
     printf 'second=999.1.3\nsecond_grid=%s\nprofile_plain=host-999.1.2-plain\n' "$(digest 9)"
 } >"$tmp/two.tbl"
 gs_versions_load "$tmp/two.tbl"
@@ -649,13 +646,10 @@ bad_table() {
     { cat "$table"; printf '%s\n' "$@"; } >"$tmp/bad.tbl"
     expect_rc3 gs_versions_load "$tmp/bad.tbl"
 }
-bad_table 'host=999.1.2' 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x30'
-check has_text 'eight ascending offsets' "$tmp/err"
-bad_table 'host=999.1.2' 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x31 0x30'
-bad_table 'host=999.1.2' 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x30 0X31'
-bad_table 'host=999.1.2' 'placement_offsets=0x10 0x11'
-check has_text 'must be one offset, written as 0x' "$tmp/err"
-bad_table 'host=999.1.2' 'placement_offsets=0X10'
+# Offsets are not recorded: the patch sites are found from the built module, so the old fields are refused.
+bad_table 'host=999.1.2' 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31'
+check has_text 'not a field of a block' "$tmp/err"
+bad_table 'host=999.1.2' 'placement_offsets=0x10'
 bad_table 'host=999.1.2' 'placement_measured=1'
 check has_text 'not a field of a block' "$tmp/err"
 bad_table 'host=999.1.2' 'no_such_field=1'

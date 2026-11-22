@@ -53,21 +53,44 @@ contains() {
 exists() { [ -e "$1" ] || [ -L "$1" ]; }
 snapshot() { ( cd "$1" && find . -mindepth 1 \( -type f -o -type l \) -print 2>/dev/null | LC_ALL=C sort ); }
 
-# A .text image of the size the plain gate reads: zeros, with the eight recorded
-# offsets set when PATCHED is 1, and the one that the Ada placement change adds when the
-# third argument is 1.
+# Where the patch sites are in the module depends on how the build laid it out, so the fixture
+# gives four functions of the fake NVIDIA code a place in a .text image and the patcher names, for
+# each revision, the function that holds it and the offset inside it. The vendor object is a block
+# of zeros that each revision changes in its own bytes.
+fx_poke() {
+    file=$1
+    shift
+    for at; do
+        printf 'P' | dd of="$file" bs=1 seek="$at" conv=notrunc 2>/dev/null
+    done
+}
+fx_layout() {
+    mkdir -p "$FX/obj"
+    printf '%s\n' 'fx_sched 64' 'fx_gate 144' 'fx_count 288' 'fx_place 448' >"$FX/symbols"
+    printf '%s\n' 'scheduler fx_sched 2 10' 'module-gate fx_gate 3 20' 'vf-count fx_count 1 30' 'ada-placement fx_place 0 40' \
+        >"$FX/stage-functions"
+    printf '%s\n' 'scheduler 10 11 12 13' 'module-gate 20 21' 'vf-count 30 31' 'ada-placement 40' >"$FX/stage-bytes"
+    printf '%s\n' 'scheduler 66 67 68 69' 'module-gate 147 148' 'vf-count 289 290' 'ada-placement 448' >"$FX/sitepos"
+    dd if=/dev/zero of="$FX/obj/stock" bs=64 count=1 2>/dev/null
+    cp "$FX/obj/stock" "$FX/obj/scheduler" && fx_poke "$FX/obj/scheduler" 10 11 12 13
+    cp "$FX/obj/scheduler" "$FX/obj/gate" && fx_poke "$FX/obj/gate" 20 21
+    cp "$FX/obj/gate" "$FX/obj/patched" && fx_poke "$FX/obj/patched" 30 31
+    cp "$FX/obj/patched" "$FX/obj/placed" && fx_poke "$FX/obj/placed" 40
+}
+
+# A .text image of the fixture module: zeros, with the bytes of the revisions set when PATCHED is 1,
+# and the one that the Ada placement change adds when the third argument is 1.
 fx_text() {
     path=$1
     patched=$2
     ada=${3:-0}
-    dd if=/dev/zero of="$path" bs=1 count=0 seek=$((0xd89671)) 2>/dev/null
+    dd if=/dev/zero of="$path" bs=512 count=1 2>/dev/null
     [ "$patched" -eq 0 ] && return 0
-    for at in 0x14a7c4 0x14a7c5 0x14a7c6 0x14a7c7 0xa16708 0xa16709 0xd8966f 0xd89670; do
-        printf 'P' | dd of="$path" bs=1 seek=$((at)) conv=notrunc 2>/dev/null
-    done
-    [ "$ada" = 1 ] || return 0
-    at=0xf7c06
-    printf 'P' | dd of="$path" bs=1 seek=$((at)) conv=notrunc 2>/dev/null
+    while read -r stage positions; do
+        [ "$stage" != ada-placement ] || [ "$ada" = 1 ] || continue
+        # shellcheck disable=SC2086 # the positions are numbers
+        fx_poke "$path" $positions
+    done <"$FX/sitepos"
 }
 
 # Every host path is under FX. The driver is copied with its sourced libraries
@@ -116,17 +139,24 @@ fx_init() {
     # The sha256sum stub can answer the recorded identities for marker files, so
     # the known-input path is reachable without an NVIDIA artifact.
     printf 'unknown\n' >"$FX/sha-mode"
+    fx_layout
     cat >"$FX/bin/sha256sum" <<EOF
 #!/bin/sh
 mode=\$(cat "\$FXDIR/sha-mode" 2>/dev/null || true)
 [ "\$mode" = known ] || exec "$REAL_SHA" "\$@"
+[ "\${1:-}" != -- ] || shift
+for o in stock:4e3abe645b6873ed478adea6a06c6955352ff06186849edeea536c9630596449 \\
+    scheduler:ce8a485bfaeebca3a9609f9415a6df81c160a0a53509aec093bc3361a6d12701 \\
+    gate:f5b788cdb3e06aed18860cc6cf950dcc13143bd831d90d8e9c4bf9e744426f12 \\
+    patched:946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29 \\
+    placed:20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157; do
+    if cmp -s "\$1" "$FX/obj/\${o%%:*}" 2>/dev/null; then
+        printf '%s  %s\n' "\${o#*:}" "\$1"
+        exit 0
+    fi
+done
 key=\$(sed -n '1p' "\$1" 2>/dev/null || true)
 case \$key in
-    stock-object) d=4e3abe645b6873ed478adea6a06c6955352ff06186849edeea536c9630596449 ;;
-    gate-object) d=ce8a485bfaeebca3a9609f9415a6df81c160a0a53509aec093bc3361a6d12701 ;;
-    vfcount-object) d=f5b788cdb3e06aed18860cc6cf950dcc13143bd831d90d8e9c4bf9e744426f12 ;;
-    patched-object) d=946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29 ;;
-    placed-object) d=20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157 ;;
     patched39-object) d=83ce12abba0441812aa135d4f099636513d709090c3da8999cda9243bd3b67ff ;;
     stock-plugin) d=7e52b76dc7ca8490e7ffbc1fd724f5db07f3791a3a2ec07f2d595bf05abdcaa7 ;;
     mixed-plugin) d=7ddfad458bbfdb0c4d6902a9e045bd15c84f63aea19314f3d3a60967224b73c6 ;;
@@ -197,12 +227,16 @@ exit 1
 EOF
     cat >"$FX/bin/readelf" <<'EOF'
 #!/bin/sh
-# Only the build-id note is needed outside the real ELF checks.
-if [ "$1" = -n ] && [ "$#" -ge 2 ]; then
-    marker=$(sed -n 's/^id=//p' "$2" 2>/dev/null || true)
-    printf '    Build ID: %s\n' "${marker:-00112233445566778899aabbccddeeff00112233}"
-    exit 0
-fi
+# The symbols and the one section the fixture's patch sites are found from, and the build-id note.
+case $1 in
+    -sW) awk '{ printf "%6d: %016x %5d FUNC    GLOBAL DEFAULT %3d %s\n", NR, $2, 0, 1, $1 }' "$FXDIR/symbols" ;;
+    -SW) printf '  [ 1] .text             PROGBITS        0000000000000000 000040 000200 00  AX  0   0  1\n' ;;
+    -n)
+        if [ "$#" -ge 2 ]; then
+            marker=$(sed -n 's/^id=//p' "$2" 2>/dev/null || true)
+            printf '    Build ID: %s\n' "${marker:-00112233445566778899aabbccddeeff00112233}"
+        fi ;;
+esac
 exit 0
 EOF
     cat >"$FX/bin/make" <<'EOF'
@@ -302,18 +336,31 @@ if [ "$(sed -n '1p' "$input" 2>/dev/null || true)" = 'REFUSE' ]; then
     exit 3
 fi
 case $stage in
-    scheduler) printf 'gate-object\n' >"$output" ;;
-    module-gate) printf 'vfcount-object\n' >"$output" ;;
-    vf-count) printf 'patched-object\n' >"$output" ;;
-    ada-placement) printf 'placed-object\n' >"$output" ;;
+    scheduler|module-gate|vf-count|ada-placement)
+        cp "$input" "$output"
+        for at in $(awk -v want="$stage" '$1 == want { for (i = 2; i <= NF; i++) print $i }' "$fx/stage-bytes"); do
+            printf 'P' | dd of="$output" bs=1 seek="$at" conv=notrunc 2>/dev/null
+        done ;;
     display-idx39) printf 'patched39-object\n' >"$output" ;;
     plugin-mixed) printf 'mixed-plugin\n' >"$output" ;;
     plugin-div4) printf 'patched-plugin-fixture\n' >"$output" ;;
     *) cp "$input" "$output" ;;
 esac
-printf 'admission=anchor\nstate=unconfirmed:unknown\nrevision=%s\nrecipe=fixture\n' "$stage"
+# A driver the table records is admitted by its digests, any other by its anchors.
+admission=anchor state=unconfirmed:unknown
+if [ "$(cat "$fx/sha-mode" 2>/dev/null)" = known ]; then
+    for recorded in "$fx"/obj/*; do
+        if cmp -s "$input" "$recorded"; then admission=digest state=confirmed; fi
+    done
+    case $(sed -n '1p' "$input" 2>/dev/null || true) in stock-plugin|mixed-plugin) admission=digest state=confirmed ;; esac
+fi
+printf 'admission=%s\nstate=%s\nrevision=%s\nrecipe=fixture\n' "$admission" "$state" "$stage"
 printf 'input_sha256=%s\noutput_sha256=%s\n' "$(sha "$input")" "$(sha "$output")"
-printf 'function=_nv045867rm\nfunction_offset=0x4f\nfile_offset=0x49bf2f\n'
+if awk -v want="$stage" '$1 == want { found = 1 } END { exit !found }' "$fx/stage-functions"; then
+    awk -v want="$stage" '$1 == want { printf "function=%s\nfunction_offset=%s\nfile_offset=%s\n", $2, $3, $4 }' "$fx/stage-functions"
+else
+    printf 'function=_nv045867rm\nfunction_offset=0x4f\nfile_offset=0x49bf2f\n'
+fi
 exit 0
 EOF
     chmod 0755 "$FX/bin"/*
@@ -321,7 +368,7 @@ EOF
 
 # The installed and built plain modules and the two .text images.
 fx_plain_files() {
-    printf 'stock-object\n' >"$FX/src/nvidia/nv-kernel.o_binary"
+    cp "$FX/obj/stock" "$FX/src/nvidia/nv-kernel.o_binary"
     printf 'text=installed\nid=installed-id\n' \
         >"$FX/root/lib/modules/$kernel/updates/dkms/nvidia.ko"
     printf 'stock-plugin\n' \
@@ -464,7 +511,7 @@ case_plain() {
         '. "$1"; gs_record_read "$2" | grep -qx record_state=recorded' sh \
         "$version_lib" "$FX/root/var/lib/geforce-sriov/driver-build"
 
-    # The eight-offset gate refuses a build that differs anywhere else, before
+    # The patch-site gate refuses a build that differs anywhere else, before
     # any installed file changes.
     fx_init gate
     fx_plain_files

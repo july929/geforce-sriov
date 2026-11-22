@@ -1288,19 +1288,13 @@ if [ "$dry" -eq 1 ] && [ "$restore" -eq 0 ]; then
     gs_version_row "$plan_version" || gs_version_row "${gs_confirmed_hosts%% *}" ||
         refuse 'the table of confirmed driver versions has no usable first block'
     plugin_name=libnvidia-vgpu.so.${plan_version:-$gs_host_version}
-    plain_offsets_list=$(printf '%s' "$gs_plain_offsets" | sed 's/ /, /g')
-    # What the build's module is compared at, and which object the build goes on with: the plain
-    # chain's last object, or with an Ada card selected the one after the ada-placement row.
+    # Which object the build goes on with: the plain chain's last object, or with an Ada card
+    # selected the one after the ada-placement row.
     plan_final=patched
     plan_require=$gs_patched_object
-    plan_eight='the eight expected offsets'
     if [ "$ada_selected" -eq 1 ]; then
         plan_final=placed
         [ -z "$gs_placement_object" ] || plan_require=$gs_placement_object
-        if [ -n "$gs_placement_offsets" ]; then
-            plain_offsets_list="$plain_offsets_list, and the placement offset $(printf '%s' "$gs_placement_offsets" | sed 's/ /, /g')"
-            plan_eight='the eight expected offsets and the placement offset'
-        fi
     fi
     # The installed module as the real run finds it below, or a placeholder when modinfo does not know it.
     module=$(modinfo -k "$kernel" -n nvidia 2>/dev/null || true)
@@ -1358,7 +1352,7 @@ EOF
             printf '+ object chain digest %.8s…, then the idx 39 bytes and relocations at the recorded function offset\n' \
                 "$([ "$ada_selected" -eq 1 ] && printf '%s' "$gs_placement_display_object" || printf '%s' "$gs_display_object")"
         else
-            printf '%s\n' "+ cmp -l '$module' .text with the built .text at exactly $plan_eight"
+            printf '%s\n' "+ cmp -l '$module' .text with the built .text at exactly the patch sites and bytes the patch tool reports"
         fi
         printf '%s\n' '+ ABI gate on every built module: the vermagic of the target kernel, all recorded CRCs against the built core and the kernel, nvidia dependency'
         printf '%s\n' '+ stage every module, then back up and replace each: nvidia and the requested companion modules'
@@ -1382,7 +1376,7 @@ EOF
 + make -C '<temporary directory>/tree' NV_EXCLUDE_BUILD_MODULES= KERNEL_UNAME='$kernel' SYSSRC='$headers' modules
 + objcopy -O binary -j .text '$module' '<temporary directory>/stock.text' # refuse if unreadable
 + objcopy -O binary -j .text '<temporary directory>/tree/nvidia.ko' '<temporary directory>/built.text' # refuse if unreadable
-+ cmp -l '<temporary directory>/stock.text' '<temporary directory>/built.text' # identical: with config and the patched plugin copy in place and the backup '$backup' differing at exactly the eight offsets, write '$published' for this module and exit 0, else refuse; otherwise require exactly the eight .text offsets $plain_offsets_list
++ cmp -l '<temporary directory>/stock.text' '<temporary directory>/built.text' # identical: with config and the patched plugin copy in place and the backup '$backup' differing at exactly the patch sites, write '$published' for this module and exit 0, else refuse; otherwise require differences at exactly the patch sites, with exactly the patched bytes
 + geforce-sriov-patch abi-check --core '<temporary directory>/tree/nvidia.ko' --module '<temporary directory>/tree/nvidia.ko' # the vermagic of the target kernel, and its CRCs when the kernel uses module versioning
 + geforce-sriov-patch ada apply '<stock plugin>' '<temporary directory>/patched-plugin.mixed' # plugin-mixed, unless the plugin already carries it
 + sha256sum '<temporary directory>/patched-plugin.mixed' # require $gs_mixed_plugin
@@ -1480,7 +1474,7 @@ known_object=0
 # The version to recommend: the highest confirmed one whose block records the placement patch.
 recommended_driver() {
     for rec_candidate in $gs_confirmed_hosts; do
-        ( gs_version_row "$rec_candidate" && [ -n "$gs_placement_object" ] && [ -n "$gs_placement_offsets" ] &&
+        ( gs_version_row "$rec_candidate" && [ -n "$gs_placement_object" ] &&
             printf '%s\n' "$rec_candidate" ) || :
     done | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1
 }
@@ -1927,37 +1921,41 @@ if [ "$display" -eq 1 ]; then
     fi
 fi
 
-# Preflight every revision when a digest this step records does not match the input, and for the
-# display build, whose idx 39 revision has no recorded input/output pair to compare.
+# Preflight every revision. The classification needs it when a digest this step records does not
+# match the input and for the display build, whose idx 39 revision has no recorded input/output
+# pair to compare. The plain build's check of the module needs it always: the patch sites are
+# found from the function and the offset in it that the patch tool reports for each revision.
 preflight_state=none
 object_chain="$actual"
 plugin_chain="$plugin_hash"
-if [ "$known_object" -eq 1 ] && [ "$known_plugin" -eq 1 ] && [ "$plugin_hash" = "$gs_stock_plugin" ]; then
+use_preflight=1
+if [ "$known_object" -eq 1 ] && [ "$known_plugin" -eq 1 ] && [ "$plugin_hash" = "$gs_stock_plugin" ] && [ "$display" -eq 0 ] &&
+    { [ "$ada_selected" -eq 0 ] || [ -n "$gs_placement_object" ]; }; then
+    use_preflight=0
     object_chain=$gs_object_chain
     plugin_chain=$gs_plugin_chain
 fi
-if [ "$known_object" -eq 0 ] || [ "$known_plugin" -eq 0 ] || [ "$plugin_hash" != "$gs_stock_plugin" ] || [ "$display" -eq 1 ] ||
-    { [ "$ada_selected" -eq 1 ] && [ -z "$gs_placement_offsets" ]; }; then
-    for tool in modprobe modinfo od tr grep; do
-        command -v "$tool" >/dev/null 2>&1 || refuse "required command missing: $tool"
-    done
-    preflight=$work/preflight
-    preflight_ok=1
-    gs_preflight "$patcher" "$src/nvidia/nv-kernel.o_binary" "$plugin" "$display" "$work_dir" "$host_version" "$ada_selected" >"$preflight" 2>"$work/preflight.err" ||
-        preflight_ok=0
-    cat "$work/preflight.err" >&2
-    if [ "$preflight_ok" -eq 0 ]; then
-        # An Ada build whose placement patch does not find its window is not built another way.
-        if [ "$ada_selected" -eq 1 ] &&
-            awk '/^preflight ada-placement: / && !/skipped after/ { f = 1 } /^anchor ada-placement/ { f = 1 } END { exit !f }' "$work/preflight.err"; then
-            if grep -E '^preflight ada-placement: ' "$work/preflight.err" | grep -q 'unique:'; then
-                placement_refuse 'the code window of the placement change was found more than once in the driver'
-            else
-                placement_refuse 'the code window of the placement change was not found in the driver'
-            fi
+for tool in modprobe modinfo od tr grep; do
+    command -v "$tool" >/dev/null 2>&1 || refuse "required command missing: $tool"
+done
+preflight=$work/preflight
+preflight_ok=1
+gs_preflight "$patcher" "$src/nvidia/nv-kernel.o_binary" "$plugin" "$display" "$work_dir" "$host_version" "$ada_selected" >"$preflight" 2>"$work/preflight.err" ||
+    preflight_ok=0
+cat "$work/preflight.err" >&2
+if [ "$preflight_ok" -eq 0 ]; then
+    # An Ada build whose placement patch does not find its window is not built another way.
+    if [ "$ada_selected" -eq 1 ] &&
+        awk '/^preflight ada-placement: / && !/skipped after/ { f = 1 } /^anchor ada-placement/ { f = 1 } END { exit !f }' "$work/preflight.err"; then
+        if grep -E '^preflight ada-placement: ' "$work/preflight.err" | grep -q 'unique:'; then
+            placement_refuse 'the code window of the placement change was found more than once in the driver'
+        else
+            placement_refuse 'the code window of the placement change was not found in the driver'
         fi
-        refuse 'a required patch anchor did not match; nothing was installed'
     fi
+    refuse 'a required patch anchor did not match; nothing was installed'
+fi
+if [ "$use_preflight" -eq 1 ]; then
     preflight_state=$(sed -n 's/^preflight_state=//p' "$preflight" | tail -n 1)
     case $preflight_state in
         confirmed|unconfirmed) ;;
@@ -2014,16 +2012,18 @@ stage_value() {
         /^stage=/ { in_stage = 0 }
         in_stage && index($0, key "=") == 1 { sub(/^[^=]*=/, ""); print; exit }' "$work/preflight" 2>/dev/null
 }
-# The .text offsets at which this build's module differs from the unpatched one, one per line in
-# ascending order. For each object revision the bytes it changed are placed in the built module
-# through the function, and the offset inside it, that the patch tool reported for that revision.
-# Returns 1 when the tool reported no function for a revision, or when a function is not a unique
-# symbol of the built module's .text; the caller then keeps the recorded offsets of the version.
-reported_offsets() {
+# The patch sites in this build's module, one per line in ascending order as "0x<offset> <old> <new>":
+# the offset in the built module's .text and the byte NVIDIA's module holds there and the byte the
+# patch writes (octal, as cmp -l prints them). Each revision names the function of NVIDIA's code that
+# holds its site and the offset inside it, so the site is found from that function's symbol in the
+# built module wherever the build laid the code out. The bytes are those the revisions changed in the
+# object. Returns 1 when the tool reported no function for a revision, or when a function is not a
+# unique symbol of the built module's .text.
+patch_sites() {
     [ -f "$work/preflight" ] || return 1
     # shellcheck disable=SC1091 # the library is installed beside the script
     . "$libdir/gs-driver-elf.sh"
-    : >"$work/expected.raw"
+    : >"$work/sites"
     before=$work/object
     for pair in scheduler:scheduler module-gate:gate vf-count:patched $placement_pairs; do
         stage=${pair%%:*}
@@ -2044,11 +2044,21 @@ reported_offsets() {
         [ "$(gs_elf_sections "$built" | awk -v want="$ndx" '$1 == want { print $2; exit }')" = .text ] || return 1
         base=$((0x$value + fo - at))
         { cmp -l "$before" "$after" 2>/dev/null || true; } |
-            awk -v base="$base" '{ print $1 - 1 + base }' >>"$work/expected.raw"
+            awk -v base="$base" '{ print $1 - 1, $1 - 1 + base }' >>"$work/sites"
         before=$after
     done
-    [ -s "$work/expected.raw" ] || return 1
-    sort -n -u "$work/expected.raw" | awk '{ printf "0x%x\n", $1 }'
+    [ -s "$work/sites" ] || return 1
+    cmp -l "$work/object" "$before" 2>/dev/null | awk -v sites="$work/sites" '
+        BEGIN {
+            while ((getline line < sites) > 0) {
+                split(line, f, " ")
+                if (!(f[1] in module)) wanted++
+                module[f[1]] = f[2]
+            }
+        }
+        ($1 - 1) in module { print module[$1 - 1], $2, $3; found++ }
+        END { exit found != wanted }' >"$work/sites.bytes" || return 1
+    sort -n "$work/sites.bytes" | awk '{ printf "0x%x %s %s\n", $1, $2, $3 }'
 }
 
 # ---- staged build ------------------------------------------------------------
@@ -2193,27 +2203,15 @@ else
     # revisions: that is never "already installed", and the comparison below refuses it.
     already=0
     [ "$reference" != "$module" ] || [ -s "$work/diff" ] || already=1
-    # Where the built module may differ from the installed one. For the recorded object these are
-    # the eight offsets measured on its version. Another host version is not guaranteed to work, but
-    # it may be tried: when its revisions were admitted by their anchors, the comparison uses the
-    # offsets the patch tool reported for that build, and it is just as exact.
-    expected_what='the eight expected offsets'
-    expected_list=$gs_plain_offsets
-    if [ "$ada_selected" -eq 1 ] && [ -n "$gs_placement_offsets" ]; then
-        expected_list="$gs_plain_offsets $gs_placement_offsets"
-        expected_what='the eight expected offsets and the one that the Ada placement change adds'
-    fi
-    for at in $expected_list; do
-        printf '%s\n' "$((at))"
-    done | sort -n | awk '{ printf "0x%x\n", $1 }' >"$work/expected"
-    if { [ "$known_object" -eq 0 ] || { [ "$ada_selected" -eq 1 ] && [ -z "$gs_placement_offsets" ]; }; } && reported_offsets >"$work/expected.reported"; then
-        cp "$work/expected.reported" "$work/expected"
-        expected_what='the offsets the patch tool reported for this build'
-        printf 'geforce-sriov-driver: the built module is compared with the installed one at %s: %s\n' \
-            "$expected_what" "$(tr '\n' ' ' <"$work/expected")"
-    elif [ -z "$gs_plain_offsets" ]; then
-        refuse "no .text offsets are recorded for driver $host_version, and the patch tool reported none for this build, so the built module cannot be compared with the installed one; nothing was installed"
-    fi
+    # Where the built module may differ from the installed one: at the patch sites of this build,
+    # with the bytes the patch writes, and nowhere else. The sites come from the symbols of NVIDIA's
+    # code in the built module, so a kernel that changes the layout of the objects around it cannot
+    # move them out from under the check.
+    patch_sites >"$work/expected" ||
+        refuse "the patch tool did not report a site in each of its revisions that the built module's symbols can place, so the built module cannot be compared with the installed one; nothing was installed"
+    expected_what='the patch sites of this build'
+    printf 'geforce-sriov-driver: the built module is compared with the installed one at the patch sites of this build: %s\n' \
+        "$(awk '{ printf "%s ", $1 }' "$work/expected")"
     # Identical .text means the installed module is already this build. The record names this kernel
     # and module only when the check above matched, so here it is missing or names another kernel or
     # module (one record serves every kernel): with the rest of the installation in place, record this
@@ -2242,7 +2240,7 @@ else
         { [ -f "$config" ] || [ -n "$kept" ]; } &&
             [ -f "$backup" ] && [ ! -L "$backup" ] && [ ! -L "$published" ] && [ ! -d "$published" ] || refuse "$incomplete"
         objcopy -O binary -j .text "$backup" "$work/backup.text" 2>/dev/null || refuse "$incomplete"
-        { cmp -l "$work/backup.text" "$work/built.text" 2>/dev/null || true; } | awk '{printf "0x%x\n", $1 - 1}' >"$work/backup-offsets"
+        { cmp -l "$work/backup.text" "$work/built.text" 2>/dev/null || true; } | awk '{printf "0x%x %s %s\n", $1 - 1, $2, $3}' >"$work/backup-offsets"
         cmp -s "$work/expected" "$work/backup-offsets" || refuse "$incomplete"
         backup_hash=$(sha "$backup") || fail "could not hash $backup"
         installed_id=$(readelf -n "$module" | awk '$1 == "Build" && $2 == "ID:" {print $3; exit}')
@@ -2270,9 +2268,9 @@ else
         keep_inputs 0 || printf 'geforce-sriov-driver: warning: the build inputs could not be kept under %s\n' "$inputs" >&2
         exit 0
     else
-        awk '{printf "0x%x\n", $1 - 1}' "$work/diff" >"$work/offsets"
+        awk '{printf "0x%x %s %s\n", $1 - 1, $2, $3}' "$work/diff" >"$work/offsets"
         if ! cmp -s "$work/expected" "$work/offsets"; then
-            unexpected=$(awk 'NR==FNR {expected[$0]=1; next} !($0 in expected) {print; exit}' "$work/expected" "$work/offsets")
+            unexpected=$(awk 'NR==FNR {expected[$1]=$0; next} expected[$1] != $0 {print $1; exit}' "$work/expected" "$work/offsets")
             [ -n "$unexpected" ] || unexpected='none (expected offset missing)'
             refuse "module .text differences are not $expected_what; first unexpected offset: $unexpected"
         fi
@@ -2578,7 +2576,7 @@ record_tmp=$work/record
         "$input_source_sha" "$input_second_sha" "$input_public_sha"
     printf 'plugin_sha256_input=%s\n' "$plugin_hash"
     printf 'plugin_sha256=%s\n' "$copy_digest"
-    if [ -f "$work/preflight" ]; then
+    if [ "$use_preflight" -eq 1 ]; then
         for stage in scheduler module-gate vf-count ada-placement plugin-mixed plugin-div4 display-idx39; do
             [ "$stage" != display-idx39 ] || [ "$display" -eq 1 ] || continue
             case $stage in ada-placement) [ "$ada_selected" -eq 1 ] || continue ;; esac

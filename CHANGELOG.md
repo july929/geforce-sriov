@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.4] - 2026-11-22
+
+### Fixed
+
+- `install` no longer refuses with `module .text differences are not the eight expected offsets` on a newer Proxmox kernel whose module layout differs, such as 7.0.14-30-pve. You do not need to do anything beyond updating. If you edited `gs-driver-versions.tbl` by hand to get past this error, a reinstall replaces it. See [Compare with a stock build](docs/driver-patch.md#compare-with-a-stock-build).
+
 ## [0.4.3] - 2026-11-17
 
 ### Added

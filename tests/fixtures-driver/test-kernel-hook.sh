@@ -28,7 +28,7 @@ state=$tmp/state
 stubs=$tmp/stubs
 mkdir -p "$bin" "$state" "$stubs"
 # The headers directory and the wait between tries are the fixture's own, so that nothing outside the tree is read and no test sleeps.
-sed -e "s|@BINDIR@|$bin|g" -e "s|@STATE@|$state|g" -e "s|@VERSION@|0.4.3|g" \
+sed -e "s|@BINDIR@|$bin|g" -e "s|@STATE@|$state|g" -e "s|@VERSION@|0.4.4|g" \
 	-e "s|/boot/vmlinuz-|$tmp/boot/vmlinuz-|g" -e "s|/lib/modules/|$tmp/modules/|g" -e "s|sleep 10|sleep 0|" "$template" >"$tmp/hook"
 for k in 7.0.99-1-pve 7.0.99-2-pve; do
 	mkdir -p "$tmp/modules/$k/build"
@@ -314,7 +314,7 @@ check "retry, the image is in the kernel's own directory: the build is made" tes
 plugin=$tmp/90-geforce-sriov.install
 hookbin=$tmp/pluginbin
 mkdir -p "$hookbin"
-sed -e "s|@BINDIR@|$hookbin|g" -e "s|@VERSION@|0.4.3|g" "$here/../../scripts/geforce-sriov-kernel-install.install" >"$plugin"
+sed -e "s|@BINDIR@|$hookbin|g" -e "s|@VERSION@|0.4.4|g" "$here/../../scripts/geforce-sriov-kernel-install.install" >"$plugin"
 chmod 755 "$plugin"
 check "plugin: every placeholder is replaced" test -z "$(grep '@[A-Z]' "$plugin" || true)"
 check "plugin: valid shell" sh -n "$plugin"

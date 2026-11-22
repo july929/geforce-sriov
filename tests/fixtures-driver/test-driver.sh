@@ -50,23 +50,56 @@ fx_stub() {
 	chmod 0755 "$path"
 }
 
-# A .text image of the size the plain gate needs, with its eight bytes set when patched, and with
-# the one that the Ada placement change adds when the third argument is 1.
+# Where the patch sites are depends on how the build laid the module out, and the checks must not
+# depend on it. A fixture layout (1 or 2) puts four functions of the fake NVIDIA code at other
+# places of the module's .text: the symbols file says where each function is, stage-functions says
+# which function each revision names and the offset inside it, stage-bytes says which bytes of the
+# object each revision changes, and sitepos says where those bytes land in the module. Layout 2
+# moves the sites by different amounts, as another kernel's objects before the blob could.
+fx_poke() {
+	file=$1
+	shift
+	for at; do
+		printf '\220' | dd of="$file" bs=1 seek="$at" conv=notrunc status=none
+	done
+}
+fx_layout() {
+	mkdir -p "$FX/obj"
+	case $1 in
+		1) va=64 vb=144 vc=288 vd=448 ;;
+		2) va=88 vb=416 vc=272 vd=472 ;;
+	esac
+	printf '%s\n' "fx_sched $va" "fx_gate $vb" "fx_count $vc" "fx_place $vd" >"$FX/symbols"
+	printf '%s\n' 'scheduler fx_sched 2 10' 'module-gate fx_gate 3 20' 'vf-count fx_count 1 30' 'ada-placement fx_place 0 40' \
+		>"$FX/stage-functions"
+	printf '%s\n' 'scheduler 10 11 12 13' 'module-gate 20 21' 'vf-count 30 31' 'ada-placement 40' >"$FX/stage-bytes"
+	{
+		printf 'scheduler %s %s %s %s\n' $((va + 2)) $((va + 3)) $((va + 4)) $((va + 5))
+		printf 'module-gate %s %s\n' $((vb + 3)) $((vb + 4))
+		printf 'vf-count %s %s\n' $((vc + 1)) $((vc + 2))
+		printf 'ada-placement %s\n' "$vd"
+	} >"$FX/sitepos"
+	# The vendor object of each revision, as the fixture patcher makes it from the one before.
+	dd if=/dev/zero of="$FX/obj/stock" bs=64 count=1 status=none
+	cp "$FX/obj/stock" "$FX/obj/scheduler" && fx_poke "$FX/obj/scheduler" 10 11 12 13
+	cp "$FX/obj/scheduler" "$FX/obj/gate" && fx_poke "$FX/obj/gate" 20 21
+	cp "$FX/obj/gate" "$FX/obj/patched" && fx_poke "$FX/obj/patched" 30 31
+	cp "$FX/obj/patched" "$FX/obj/placed" && fx_poke "$FX/obj/placed" 40
+}
+
+# A .text image of the fixture module: zeros, with the bytes of the revisions set when patched, and
+# with the one that the Ada placement change adds when the third argument is 1.
 fx_plain_text() {
 	path=$1
 	patched=$2
 	ada=${3:-0}
-	truncate -s 0xd89671 "$path" 2>/dev/null || {
-		# truncate(1) is not POSIX; fall back to dd.
-		dd if=/dev/zero of="$path" bs=1 count=0 seek=$((0xd89671)) status=none
-	}
+	dd if=/dev/zero of="$path" bs=512 count=1 status=none
 	[ "$patched" -eq 0 ] && return 0
-	for at in 0x14a7c4 0x14a7c5 0x14a7c6 0x14a7c7 0xa16708 0xa16709 0xd8966f 0xd89670; do
-		printf '\220' | dd of="$path" bs=1 seek=$((at)) conv=notrunc status=none
-	done
-	[ "$ada" = 1 ] || return 0
-	at=0xf7c06
-	printf '\220' | dd of="$path" bs=1 seek=$((at)) conv=notrunc status=none
+	while read -r stage positions; do
+		[ "$stage" != ada-placement ] || [ "$ada" = 1 ] || continue
+		# shellcheck disable=SC2086 # the positions are numbers
+		fx_poke "$path" $positions
+	done <"$FX/sitepos"
 }
 
 fx_init() {
@@ -82,6 +115,7 @@ fx_init() {
 	export TMPDIR="$FX/tmp"
 	printf 'unknown\n' >"$FX/sha-mode"
 
+	fx_layout 1
 	fx_stub "$FX/bin/depmod" 'exit 0'
 	# The kernel that is running, as uname says: FXDIR/running, or the real one.
 	fx_stub "$FX/bin/uname" "if [ -f \"$FX/running\" ] && [ \"\$*\" = -r ]; then cat \"$FX/running\"; else exec /usr/bin/uname \"\$@\"; fi"
@@ -134,7 +168,17 @@ if [ -f "$fx/refuse-stage" ] && [ "$stage" = "$(cat "$fx/refuse-stage")" ]; then
 	printf 'geforce-sriov-patch: anchor %s: %s\n' "$stage" "$(cat "$fx/refuse-text" 2>/dev/null || echo 'the recorded context was not found')" >&2
 	exit 3
 fi
-case $base in
+# Marker mode: a revision of the object sets its own bytes in a copy of its input.
+if [ "$mode" = marker ]; then
+	case $stage in
+		scheduler|module-gate|vf-count|ada-placement)
+			cp "$input" "$output"
+			for at in $(awk -v want="$stage" '$1 == want { for (i = 2; i <= NF; i++) print $i }' "$fx/stage-bytes"); do
+				printf '\220' | dd of="$output" bs=1 seek="$at" conv=notrunc status=none
+			done ;;
+	esac
+fi
+[ -e "$output" ] || case $base in
 	patched|patched39)
 		if [ "$mode" = elf ] && [ -f "$fx/objects/final-object" ]; then
 			cp "$fx/objects/final-object" "$output"
@@ -151,6 +195,8 @@ case $base in
 			cp "$fx/objects/stage1-object" "$output"
 		elif [ "$mode" = elf ] && [ "$base" = gate ] && [ -f "$fx/objects/stage2-object" ]; then
 			cp "$fx/objects/stage2-object" "$output"
+		elif [ "$mode" = elf ] && { [ "$base" = placed ] || [ "$base" = ada-placement ]; } && [ -f "$fx/objects/placed-object" ]; then
+			cp "$fx/objects/placed-object" "$output"
 		else
 			case $key in
 				stock-object) printf 'scheduler-object\n' >"$output" ;;
@@ -163,8 +209,19 @@ case $base in
 		fi ;;
 esac
 in_sha=$(sha "$input"); out_sha=$(sha "$output")
-printf 'revision=%s\nadmission=anchor\nstate=unconfirmed:unknown\ninput_sha256=%s\noutput_sha256=%s\n' \
-	"$stage" "$in_sha" "$out_sha"
+# A driver the table records is admitted by its digests, any other by its anchors. A fixture says
+# that its table records the files it uses with an admit-digest file.
+admission=anchor state=unconfirmed:unknown
+if [ "$(cat "$fx/sha-mode" 2>/dev/null)" = known ] || [ -f "$fx/admit-digest" ]; then
+	for recorded in "$fx"/obj/*; do
+		if cmp -s "$input" "$recorded"; then admission=digest state=confirmed; fi
+	done
+	case $key in stock-plugin|mixed-plugin) admission=digest state=confirmed ;; esac
+	# The synthetic table has no placement row.
+	if [ -f "$fx/admit-digest" ] && [ "$stage" = ada-placement ]; then admission=anchor state=unconfirmed:unknown; fi
+fi
+printf 'revision=%s\nadmission=%s\nstate=%s\ninput_sha256=%s\noutput_sha256=%s\n' \
+	"$stage" "$admission" "$state" "$in_sha" "$out_sha"
 # Where the revision was found, when the fixture says: "stage function function_offset file_offset".
 if [ -f "$fx/stage-functions" ]; then
 	awk -v want="$stage" '$1 == want { printf "function=%s\nfunction_offset=%s\nfile_offset=%s\n", $2, $3, $4 }' \
@@ -176,6 +233,7 @@ EOF
 	if [ "$MODE" = marker ]; then
 		cat >"$FX/bin/sha256sum" <<EOF
 #!/bin/sh
+[ "\${1:-}" != -- ] || shift
 mode=\$(cat "$FX/sha-mode")
 key=\$(cat "\$1" 2>/dev/null | tr -d '\\n' || true)
 d=
@@ -183,12 +241,16 @@ case \$1 in
 	*/host.run) [ "\$mode" = known ] && d=8fb252d5eafbb5740c9f623c881334119c532c1960834712956eb5e304e7ec41 ;;
 esac
 if [ -z "\$d" ] && [ "\$mode" = known ]; then
+	for o in stock:4e3abe645b6873ed478adea6a06c6955352ff06186849edeea536c9630596449 \\
+		scheduler:ce8a485bfaeebca3a9609f9415a6df81c160a0a53509aec093bc3361a6d12701 \\
+		gate:f5b788cdb3e06aed18860cc6cf950dcc13143bd831d90d8e9c4bf9e744426f12 \\
+		patched:946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29 \\
+		placed:20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157; do
+		if cmp -s "\$1" "$FX/obj/\${o%%:*}" 2>/dev/null; then d=\${o#*:}; fi
+	done
+fi
+if [ -z "\$d" ] && [ "\$mode" = known ]; then
 	case \$key in
-		stock-object) d=4e3abe645b6873ed478adea6a06c6955352ff06186849edeea536c9630596449 ;;
-		scheduler-object) d=ce8a485bfaeebca3a9609f9415a6df81c160a0a53509aec093bc3361a6d12701 ;;
-		gate-object) d=f5b788cdb3e06aed18860cc6cf950dcc13143bd831d90d8e9c4bf9e744426f12 ;;
-		patched-object) d=946b27b8bcf0f08285335f47904516860c65b726619e5a36d89785981c70ba29 ;;
-		placed-object) d=20eaebcac4f5220d21f64bcd5145143abe8f806a25cb9e249088a1b98df7d157 ;;
 		stock-plugin) d=7e52b76dc7ca8490e7ffbc1fd724f5db07f3791a3a2ec07f2d595bf05abdcaa7 ;;
 		mixed-plugin) d=7ddfad458bbfdb0c4d6902a9e045bd15c84f63aea19314f3d3a60967224b73c6 ;;
 		patched-plugin) d=aa4fdeb5288b5e56e7d4972466813d78e10cfb428fcf62fb53b84fec718cf07c ;;
@@ -221,7 +283,16 @@ exec "$REAL_MODINFO" "$@"
 STUB
 		chmod 0755 "$FX/bin/modinfo"
 		fx_stub "$FX/bin/objcopy" "cp \"$FX/\$(sed -n 's/^text=//p' \"\$5\").text\" \"\$6\""
-		fx_stub "$FX/bin/readelf" "printf '    Build ID: %s\\n' \"\$(sed -n 's/^id=//p' \"\$2\")\""
+		cat >"$FX/bin/readelf" <<'STUB'
+#!/bin/sh
+# The symbols and the one section the fixture's patch sites are found from, or a build id.
+case $1 in
+	-sW) awk '{ printf "%6d: %016x %5d FUNC    GLOBAL DEFAULT %3d %s\n", NR, $2, 0, 1, $1 }' "$FXDIR/symbols" ;;
+	-SW) printf '  [ 1] .text             PROGBITS        0000000000000000 000040 000200 00  AX  0   0  1\n' ;;
+	*) printf '    Build ID: %s\n' "$(sed -n 's/^id=//p' "$2")" ;;
+esac
+STUB
+		chmod 0755 "$FX/bin/readelf"
 		fx_stub "$FX/bin/make" "cp '$FX/built.ko' \"\$2/nvidia.ko\"; cp '$FX/built.ko' \"\$2/nvidia-vgpu-vfio.ko\""
 	fi
 	if [ "$MODE" = elf ]; then
@@ -321,7 +392,7 @@ RUN
 # Marker-mode files: the vendor object, the installed module, the built module,
 # the plugin and the two .text images.
 fx_marker_files() {
-	printf 'stock-object\n' >"$FX/src/nvidia/nv-kernel.o_binary"
+	cp "$FX/obj/stock" "$FX/src/nvidia/nv-kernel.o_binary"
 	mkdir -p "$FX/root/lib/modules/$kdir/updates/dkms" "$FX/root/usr/lib/x86_64-linux-gnu"
 	printf 'text=BBBB\nid=installed-id\n' >"$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko"
 	printf 'stock-plugin\n' >"$FX/root/usr/lib/x86_64-linux-gnu/libnvidia-vgpu.so.580.159.01"
@@ -342,20 +413,20 @@ fx_elf_files() {
 __attribute__((noinline)) int f1(int x) { return x + 1; }
 __attribute__((noinline)) int f2(int x) { return x * 3; }
 __attribute__((noinline)) int _nv045867rm(void) { return 0; }
+__attribute__((noinline)) int fx_place(int x) { return x - 1; }
+/* Room that no revision touches, for the cases that change one more byte. */
+__asm__(".text\n.globl fx_pad\nfx_pad:\n.fill 4096,1,0\n");
 EOF
 	"$cc" -O1 -c -fno-asynchronous-unwind-tables -fno-stack-protector \
 		"$FX/objects/a.c" -o "$FX/objects/compiled-object"
-	if [ "$layout" = plain ]; then
-		# The plain gate compares whole .text images at its eight recorded offsets.
-		fx_plain_text "$FX/objects/stock.text" 0
-		fx_plain_text "$FX/objects/patched.text" 1
-	elif [ "$layout" = shifted ]; then
-		# Another host version: each revision changes bytes wherever this build put its function.
-		# The object after each revision is kept, and the table says where the patcher found it.
+	if [ "$layout" = plain ] || [ "$layout" = shifted ]; then
+		# Each revision changes bytes wherever this build put its function. The object after each
+		# revision is kept, and the table says where the patcher found it. padoff is a place in .text
+		# that no revision changes, and adasite the byte the placement change rewrites.
 		"$objcopy" -O binary -j .text "$FX/objects/compiled-object" "$FX/objects/stock.text"
-		python3 - "$FX/objects" "$FX/stage-functions" <<'PYSHIFT' || return 1
+		python3 - "$FX/objects" "$FX/stage-functions" "$FX/padoff" "$FX/adasite" <<'PYSHIFT' || return 1
 import re, subprocess, sys
-objects, table = sys.argv[1], sys.argv[2]
+objects, table, padoff, adasite = sys.argv[1:5]
 path = objects + '/compiled-object'
 syms = {}
 for line in subprocess.run(['readelf', '-sW', path], capture_output=True, text=True).stdout.splitlines():
@@ -367,24 +438,27 @@ for line in subprocess.run(['readelf', '-SW', path], capture_output=True, text=T
     m = re.match(r'\s*\[\s*(\d+)\]\s+(\S+)\s+(\S+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)', line)
     if m and m.group(2) == '.text':
         text_off = int(m.group(5), 16)
-sites = [('scheduler', 'f1', 0), ('module-gate', 'f2', 1), ('vf-count', '_nv045867rm', 0)]
-if text_off is None or any(name not in syms for _, name, _ in sites):
+sites = [('scheduler', 'f1', 0, 2), ('module-gate', 'f2', 1, 2), ('vf-count', '_nv045867rm', 0, 2), ('ada-placement', 'fx_place', 0, 1)]
+if text_off is None or 'fx_pad' not in syms or any(name not in syms for _, name, _, _ in sites):
     sys.exit(1)
 text = bytearray(open(objects + '/stock.text', 'rb').read())
 rows = []
-for number, (stage, name, inside) in enumerate(sites, 1):
+names = ['/stage1.text', '/stage2.text', '/patched.text', '/placed.text']
+for number, (stage, name, inside, width) in enumerate(sites):
     at = syms[name] + inside
-    text[at:at + 2] = b'\x90\x90'
-    open(objects + ('/patched.text' if number == 3 else '/stage%d.text' % number), 'wb').write(text)
+    text[at:at + width] = b'\x90' * width
+    open(objects + names[number], 'wb').write(text)
     rows.append('%s %s 0x%x 0x%x' % (stage, name, inside, text_off + at))
-for stage in ('ada-placement',):
-    rows.append('%s f1 0 0x%x' % (stage, text_off + syms['f1']))
 open(table, 'w').write('\n'.join(rows) + '\n')
+open(padoff, 'w').write('%d\n' % syms['fx_pad'])
+open(adasite, 'w').write('%d\n' % syms['fx_place'])
 PYSHIFT
 		for number in 1 2; do
 			"$objcopy" --update-section .text="$FX/objects/stage$number.text" \
 				"$FX/objects/compiled-object" "$FX/objects/stage$number-object"
 		done
+		"$objcopy" --update-section .text="$FX/objects/placed.text" \
+			"$FX/objects/compiled-object" "$FX/objects/placed-object"
 	else
 		# The display gate derives its offsets from the object's own bytes. The idx 39 bytes
 		# are planted at the function's real .text offset: the compiler decides where the
@@ -549,14 +623,13 @@ case_placement_elf() {
 	fi
 	# The module of an Ada build: the plain one with the one byte of the placement change.
 	cp "$FX/modules/nvidia.ko" "$FX/modules/nvidia.ko.plain"
-	fx_plain_text "$FX/objects/ada.text" 1 1
-	objcopy --update-section .text="$FX/objects/ada.text" "$FX/modules/nvidia.ko.plain" "$FX/modules/nvidia.ko"
+	objcopy --update-section .text="$FX/objects/placed.text" "$FX/modules/nvidia.ko.plain" "$FX/modules/nvidia.ko"
 	cp "$FX/modules/nvidia.ko" "$FX/modules/nvidia.ko.ada"
 	installed=$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko
 	# An unrecorded driver whose placement window is found: the Ada build, with the byte rewritten.
 	fx_exec unknown --ada-selected
 	check "ada elf: installs" test "$rc" -eq 0
-	check "ada elf: the installed module carries the placement byte rewritten" test "$(text_byte "$installed" 0xf7c06)" = 90
+	check "ada elf: the installed module carries the placement byte rewritten" test "$(text_byte "$installed" "$(cat "$FX/adasite")")" = 90
 	check "ada elf: one build" test "$(printf '%s\n' "$out" | grep -c "^+ 'make' ")" -eq 1
 	# The record names it, and a build for another value is made again.
 	check "ada elf: said" contains "$out" 'geforce-sriov-driver: the build record names ada_placement=1'
@@ -568,8 +641,8 @@ case_placement_elf() {
 	# No Ada card selected: the row is not run, and a module that carries its offset is not the build of this request.
 	: >"$FX/stages.log"
 	fx_exec unknown
-	check "no Ada card: a module with the placement offset is refused" contains "$out" \
-		'module .text differences are not the eight expected offsets; first unexpected offset: 0xf7c06'
+	check "no Ada card: a module with the placement site is refused" contains "$out" \
+		"module .text differences are not the patch sites of this build; first unexpected offset: $(printf '0x%x' "$(cat "$FX/adasite")")"
 	check "no Ada card: the row was not run on the way" not_contains "$(cat "$FX/stages.log")" ada-placement
 	# The module of a build with no Ada card: the same, without the changed byte.
 	cp "$FX/modules/nvidia.ko.plain" "$FX/modules/nvidia.ko"
@@ -578,7 +651,8 @@ case_placement_elf() {
 	check "no Ada card: built again" contains "$out" \
 		'the installed nvidia.ko was built with ada_placement=1 and ada_placement=0 is asked for; the modules are built again'
 	check "no Ada card: the record" test "$(record_field ada_placement)" = 0
-	check "no Ada card: the installed module has no placement byte" test "$(text_byte "$installed" 0xf7c06)" = 00
+	check "no Ada card: the installed module has no placement byte" test \
+		"$(text_byte "$installed" "$(cat "$FX/adasite")")" != 90
 	check "no Ada card: the row was not run" not_contains "$(cat "$FX/stages.log")" ada-placement
 	check "no Ada card: the plain chain was run" contains "$(cat "$FX/stages.log")" vf-count
 	check "no Ada card: no row in the record" test -z "$(record_field patch_ada_placement_admission)"
@@ -590,8 +664,8 @@ case_placement_elf() {
 	# An Ada card, with a module that lacks the placement offset: the row is expected, and missing.
 	: >"$FX/stages.log"
 	fx_exec unknown --ada-selected
-	check "ada: a module without the placement offset is refused" contains "$out" \
-		'module .text differences are not the eight expected offsets and the one that the Ada placement change adds; first unexpected offset: none (expected offset missing)'
+	check "ada: a module without the placement site is refused" contains "$out" \
+		'module .text differences are not the patch sites of this build; first unexpected offset: none (expected offset missing)'
 	check "ada: the row was run after vf-count" contains \
 		"$(grep -E '^(vf-count|ada-placement)' "$FX/stages.log" | tr '\n' ' ')" 'vf-count ada-placement '
 	cp "$FX/modules/nvidia.ko.ada" "$FX/modules/nvidia.ko"
@@ -629,11 +703,11 @@ case_ada_refusals() {
 	fx_init "$FXROOT/ada-anchor" marker
 	fx_marker_files
 	printf 'ada-placement\n' >"$FX/refuse-stage"
-	# The recorded digests are all known: the row is run in the staged build, and it does not apply.
+	# The recorded digests are all known: the patch sites are found from the preflight, which runs the row, and it does not apply.
 	fx_exec known --driver-file "$FX/host.run" --ada-selected
 	check "ada, anchor not found (staged build): refused with exit 3" test "$rc" -eq 3
 	check "ada, anchor not found (staged build): says why and names the recommended driver" contains "$out" \
-		"the VMs of an Ada card cannot be placed from free video memory with driver 580.159.01: the placement change did not apply to the driver. Install NVIDIA's vGPU host driver 580.159.01, the recommended confirmed version, and run this again; nothing was installed"
+		"the VMs of an Ada card cannot be placed from free video memory with driver 580.159.01: the code window of the placement change was not found in the driver. Install NVIDIA's vGPU host driver 580.159.01, the recommended confirmed version, and run this again; nothing was installed"
 	check "ada, anchor not found (staged build): no fallback to fixed slots" not_contains "$out" 'built again'
 	check "ada, anchor not found (staged build): nothing installed" test \
 		"$(exists "$FX/root/var/lib/geforce-sriov/driver-build" && echo record)$(exists "$FX/root/etc/modprobe.d/geforce-sriov-nvidia.conf" && echo config)$(exists "$FX/root/usr/lib/x86_64-linux-gnu/libnvidia-vgpu.so.580.159.01.geforce-sriov" && echo plugin)" = ''
@@ -748,6 +822,36 @@ case_plain() {
 	fx_exec known --restore
 	check "plain restore: foreign plugin copy kept" contains "$out" "left $pcopy"
 	check "plain restore: foreign plugin copy untouched" test "$(cat "$pcopy")" = 'foreign plugin'
+}
+
+# The patch sites sit in NVIDIA's code, and where a build puts that code depends on the kernel it is
+# built for: a kernel header that changes the objects linked before it moves it. Layout 2 puts each
+# function at another place than layout 1, by different amounts. The recorded build still installs,
+# compared at the sites that follow the functions, and a build that changes any other byte, or a
+# site to a byte other than the patched one, is refused.
+case_layout_shift() {
+	fx_init "$FXROOT/layout" marker
+	fx_layout 2
+	fx_marker_files
+	fx_exec known --driver-file "$FX/host.run"
+	check "layout shift: a build whose sites moved installs" test "$rc" -eq 0
+	check "layout shift: the record says confirmed inputs" test "$(record_field confirmation)" = confirmed-inputs
+	check "layout shift: compared at the moved sites" contains "$out" 'at the patch sites of this build: 0x5a 0x5b 0x5c 0x5d'
+	fx_init "$FXROOT/layout-byte" marker
+	fx_layout 2
+	fx_marker_files
+	printf '\221' | dd of="$FX/AAAA.text" bs=1 seek=90 conv=notrunc status=none
+	fx_exec known --driver-file "$FX/host.run"
+	check "layout shift, another byte at a site: refused" test "$rc" -eq 3
+	check "layout shift, another byte at a site: names the site" contains "$out" \
+		'module .text differences are not the patch sites of this build; first unexpected offset: 0x5a'
+	fx_init "$FXROOT/layout-extra" marker
+	fx_layout 2
+	fx_marker_files
+	fx_poke "$FX/AAAA.text" 20
+	fx_exec known --driver-file "$FX/host.run"
+	check "layout shift, one more changed byte: refused" test "$rc" -eq 3
+	check "layout shift, one more changed byte: names it" contains "$out" 'first unexpected offset: 0x14'
 }
 
 # A restore with no module for the kernel (it was purged) has nothing to restore: it ends clean and the record goes,
@@ -908,36 +1012,26 @@ case_package_digest() {
 # them. The block's digests are the real ones of the marker files, so the unchanged sha256sum
 # answers them. A build of that version is confirmed with its own profile and is compared at its
 # own offsets; the same tree against the unchanged table is another version, built best effort.
-synth_text() {
-	image=$1
-	dd if=/dev/zero of="$image" bs=1 count=64 status=none
-	[ "$2" -eq 0 ] && return 0
-	shift 2
-	for at do
-		printf '\220' | dd of="$image" bs=1 seek="$((at))" conv=notrunc status=none
-	done
-}
 real_digest() { printf '%s\n' "$1" | "$REAL_SHA" | cut -d' ' -f1; }
-# The fixture host of the synthetic version 999.1.2; the offsets are those of the built module.
+# The digest of the vendor object after a revision (stock, scheduler, gate, patched, placed).
+obj_digest() { "$REAL_SHA" "$FX/obj/$1" | cut -d' ' -f1; }
+# The fixture host of the synthetic version 999.1.2.
 fx_second_version() {
 	fx_init "$FXROOT/$1" marker
-	shift
 	fx_marker_files
+	: >"$FX/admit-digest"
 	printf '%s\n' '-DNV_VERSION_STRING=\"999.1.2\"' >"$FX/src/Kbuild"
 	mv "$FX/root/usr/lib/x86_64-linux-gnu/libnvidia-vgpu.so.580.159.01" \
 		"$FX/root/usr/lib/x86_64-linux-gnu/libnvidia-vgpu.so.999.1.2"
-	synth_text "$FX/BBBB.text" 0
-	synth_text "$FX/AAAA.text" 1 "$@"
 	mkdir "$FX/synth"
 	cp "$here/../../scripts/geforce-sriov-driver.sh" "$here"/../../scripts/gs-driver-* "$FX/synth/"
 	{
 		printf '\nhost=999.1.2\n'
 		printf 'stock_object=%s\nscheduler_object=%s\ngate_object=%s\npatched_object=%s\n' \
-			"$(real_digest stock-object)" "$(real_digest scheduler-object)" \
-			"$(real_digest gate-object)" "$(real_digest patched-object)"
+			"$(obj_digest stock)" "$(obj_digest scheduler)" \
+			"$(obj_digest gate)" "$(obj_digest patched)"
 		printf 'stock_plugin=%s\nmixed_plugin=%s\npatched_plugin=%s\n' \
 			"$(real_digest stock-plugin)" "$(real_digest mixed-plugin)" "$(real_digest patched-plugin)"
-		printf 'plain_offsets=0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31\n'
 		printf 'profile_plain=host-999.1.2-plain\n'
 	} >>"$FX/synth/gs-driver-versions.tbl"
 }
@@ -945,19 +1039,19 @@ case_second_version() {
 	shipped=$driver
 	pcopy_dir=usr/lib/x86_64-linux-gnu
 
-	fx_second_version second-version 0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31
+	fx_second_version second-version
 	driver=$FX/synth/geforce-sriov-driver.sh
 	fx_exec unknown --dry-run
-	check "second version, plan: its own stock digest" contains "$out" "require $(real_digest stock-object), or admit"
-	check "second version, plan: its own offsets" contains "$out" \
-		'require exactly the eight .text offsets 0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x30, 0x31'
+	check "second version, plan: its own stock digest" contains "$out" "require $(obj_digest stock), or admit"
+	check "second version, plan: its own sites" contains "$out" \
+		'require differences at exactly the patch sites, with exactly the patched bytes'
 	check "second version, plan: its own plugin" contains "$out" "/libnvidia-vgpu.so.999.1.2'"
 	check "second version, plan: classified from its digests" contains "$out" 'version classification: confirmed-inputs'
 	# A version whose block records no ada-placement row is built for an Ada card when the window is found, as the
 	# other rows are, and says so as unconfirmed. When it is not, the step stops, naming the highest confirmed
 	# driver that has the row; there is no fallback to fixed slots.
-	printf '\nhost=999.9.9\nplacement_object=%s\nplacement_offsets=0x1\n' \
-		"$(real_digest placed-object)" >>"$FX/synth/gs-driver-versions.tbl"
+	printf '\nhost=999.9.9\nplacement_object=%s\n' \
+		"$(obj_digest placed)" >>"$FX/synth/gs-driver-versions.tbl"
 	printf 'ada-placement\n' >"$FX/refuse-stage"
 	fx_exec unknown --ada-selected
 	check "second version, Ada, window not found: refused" test "$rc" -eq 3
@@ -968,10 +1062,12 @@ case_second_version() {
 	check "second version, Ada, window not found: no way out by fixed slots" not_contains "$out" 'fixed slots'
 	check "second version, Ada, window not found: nothing installed" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
 	rm -f "$FX/refuse-stage"
+	fx_plain_text "$FX/AAAA.text" 1 1
 	fx_exec unknown --ada-selected
 	check "second version, Ada, window found: the build installs best effort" test "$rc" -eq 0
 	check "second version, Ada, window found: the record names ada_placement=1, unconfirmed" test \
 		"$(record_field ada_placement)/$(record_field confirmation)" = 1/unconfirmed
+	fx_plain_text "$FX/AAAA.text" 1
 	fx_exec unknown
 	check "second version: the build installs" test "$rc" -eq 0
 	check "second version: confirmed inputs" test "$(record_field confirmation)" = confirmed-inputs
@@ -994,20 +1090,21 @@ case_second_version() {
 	check "second version, restore: the stock module is back" test \
 		"$(cat "$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko")" = "$(printf 'text=BBBB\nid=installed-id\n')"
 
-	# A module that differs at the offsets of 580.159.01 is not this version's build.
-	fx_second_version second-version-offsets 0x14 0x15 0x16 0x17 0x20 0x21 0x30 0x31
+	# A module with one more changed byte than the patch sites is not this version's build.
+	fx_second_version second-version-extra
+	fx_poke "$FX/AAAA.text" 20
 	driver=$FX/synth/geforce-sriov-driver.sh
 	fx_exec unknown
 	check "second version, other offsets: refused" test "$rc" -eq 3
 	check "second version, other offsets: names the first one" contains "$out" \
-		'module .text differences are not the eight expected offsets; first unexpected offset: 0x14'
-	check "second version, other offsets: no record" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
+		'module .text differences are not the patch sites of this build; first unexpected offset: 0x14'
+	check "second version, extra byte: no record" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
 
-	# An object of that version with another digest: admitted by anchors, compared at the block's
-	# offsets, not confirmed, and the notice lists both confirmed versions.
-	fx_second_version second-version-anchors 0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31
+	# An object of that version with another digest: admitted by anchors, compared at the sites the
+	# patch tool reported, not confirmed, and the notice lists both confirmed versions.
+	fx_second_version second-version-anchors
 	driver=$FX/synth/geforce-sriov-driver.sh
-	printf 'another-object\n' >"$FX/src/nvidia/nv-kernel.o_binary"
+	fx_poke "$FX/src/nvidia/nv-kernel.o_binary" 60
 	fx_exec unknown
 	check "second version, another object: the build installs" test "$rc" -eq 0
 	check "second version, another object: not confirmed" test \
@@ -1016,15 +1113,16 @@ case_second_version() {
 		'Best effort: driver 999.1.2 is not guaranteed to work. Confirmed versions: 580.159.01, 999.1.2.'
 
 	# The table as shipped has no block for 999.1.2: it is another version. Its revisions are
-	# admitted by anchors, and with no offsets recorded or reported the module cannot be compared.
-	fx_second_version second-version-unlisted 0x10 0x11 0x12 0x13 0x20 0x21 0x30 0x31
+	# admitted by anchors, and the module is compared at the sites the patch tool reported.
+	fx_second_version second-version-unlisted
+	rm -f "$FX/admit-digest"
 	driver=$shipped
 	fx_exec unknown --dry-run
 	check "unlisted version, plan: not confirmed" contains "$out" 'version classification: unconfirmed'
 	fx_exec unknown --ada-selected
-	check "unlisted version, Ada: the window is looked for, as for the other rows" test "$rc" -eq 3
-	check "unlisted version, Ada: no .text offsets, as without an Ada card" contains "$out" \
-		'no .text offsets are recorded for driver 999.1.2'
+	check "unlisted version, Ada: a module without the placement site is refused" test "$rc" -eq 3
+	check "unlisted version, Ada: the placement site is expected" contains "$out" \
+		'first unexpected offset: none (expected offset missing)'
 	printf 'ada-placement\n' >"$FX/refuse-stage"
 	fx_exec unknown --ada-selected
 	check "unlisted version, Ada, window not found: refused" test "$rc" -eq 3
@@ -1033,14 +1131,12 @@ case_second_version() {
 	check "unlisted version, Ada, window not found: nothing installed" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
 	rm -f "$FX/refuse-stage"
 	fx_exec unknown
-	check "unlisted version: refused" test "$rc" -eq 3
+	check "unlisted version: the build installs best effort" test "$rc" -eq 0
 	check "unlisted version: the notice names it and the confirmed version" contains "$out" \
 		'Best effort: driver 999.1.2 is not guaranteed to work. Confirmed versions: 580.159.01. Required patch anchors matched'
-	check "unlisted version: says why the module cannot be compared" contains "$out" \
-		'no .text offsets are recorded for driver 999.1.2, and the patch tool reported none for this build'
-	check "unlisted version: nothing installed" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
-	check "unlisted version: the module is untouched" test \
-		"$(cat "$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko")" = "$(printf 'text=BBBB\nid=installed-id\n')"
+	check "unlisted version: compared at the sites the patch tool reported" contains "$out" \
+		'at the patch sites of this build: 0x'
+	check "unlisted version: recorded as not confirmed" test "$(record_field confirmation)" = unconfirmed
 	driver=$shipped
 }
 
@@ -1340,7 +1436,8 @@ fx_display_installed() {
 	# names it as a display build, as a display install leaves both.
 	installed=$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko
 	cp "$FX/objects/patched.text" "$FX/objects/display.text"
-	for at in 0x14870 0x14871 0x148aa 0x148ab; do
+	pad=$(cat "$FX/padoff")
+	for at in $pad $((pad + 1)) $((pad + 0x40)) $((pad + 0x41)); do
 		printf '\220' | dd of="$FX/objects/display.text" bs=1 seek="$((at))" conv=notrunc status=none
 	done
 	objcopy --update-section .text="$FX/objects/display.text" "$installed" "$installed.new"
@@ -1380,13 +1477,13 @@ case_after_display() {
 	# The check is not weakened: a build that differs from NVIDIA's module anywhere else is refused.
 	fx_display_installed after-display-extra || return 0
 	cp "$FX/objects/patched.text" "$FX/objects/extra.text"
-	printf '\220' | dd of="$FX/objects/extra.text" bs=1 seek="$((0x14870))" conv=notrunc status=none
+	printf '\220' | dd of="$FX/objects/extra.text" bs=1 seek="$(cat "$FX/padoff")" conv=notrunc status=none
 	objcopy --update-section .text="$FX/objects/extra.text" "$FX/modules/nvidia.ko" "$FX/modules/nvidia.ko.new"
 	mv "$FX/modules/nvidia.ko.new" "$FX/modules/nvidia.ko"
 	fx_exec unknown --no-display --host-cuda --companion-source "$FX/companion"
 	check "host CUDA after display, another difference: refused" test "$rc" -eq 3
 	check "host CUDA after display, another difference: names it" contains "$out" \
-		'module .text differences are not the eight expected offsets; first unexpected offset: 0x14870'
+		"module .text differences are not the patch sites of this build; first unexpected offset: $(printf '0x%x' "$(cat "$FX/padoff")")"
 	check "host CUDA after display, another difference: the installed core stays" test \
 		"$(sha256sum "$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko" | cut -d' ' -f1)" = "$display_core"
 
@@ -1399,7 +1496,7 @@ case_after_display() {
 	fx_exec unknown --no-display --host-cuda --companion-source "$FX/companion"
 	check "host CUDA after display, a build without the revisions: refused" test "$rc" -eq 3
 	check "host CUDA after display, a build without the revisions: says so" contains "$out" \
-		'module .text differences are not the eight expected offsets; first unexpected offset: none (expected offset missing)'
+		'module .text differences are not the patch sites of this build; first unexpected offset: none (expected offset missing)'
 	check "host CUDA after display, a build without the revisions: the installed core stays" test \
 		"$(sha256sum "$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko" | cut -d' ' -f1)" = "$display_core"
 	check "host CUDA after display, a build without the revisions: the record stays" test \
@@ -1496,18 +1593,21 @@ case_plain_other_version() {
 		"with driver 570.1.2: the code window of the placement change was not found in the driver. Install NVIDIA's vGPU host driver 580.159.01, the recommended confirmed version"
 	check "other version, Ada, window not found: nothing installed" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
 	rm -f "$FX/refuse-stage"
-	# The window is found: the build goes on, as best effort, compared at the offsets the tool reported.
+	# The window is found: the build goes on, as best effort, compared at the sites the tool reported.
+	cp "$FX/modules/nvidia.ko" "$FX/modules/nvidia.ko.plain"
+	objcopy --update-section .text="$FX/objects/placed.text" "$FX/modules/nvidia.ko.plain" "$FX/modules/nvidia.ko"
 	fx_exec unknown --ada-selected
 	check "other version, Ada, window found: the build installs best effort" test "$rc" -eq 0
 	check "other version, Ada, window found: the record names ada_placement=1, and its row was admitted by its window" test \
 		"$(record_field ada_placement)/$(record_field patch_ada_placement_admission)/$(record_field confirmation)" = 1/anchor/unconfirmed
+	cp "$FX/modules/nvidia.ko.plain" "$FX/modules/nvidia.ko"
 	fx_exec unknown
 	check "other version, plain: the build installs" test "$rc" -eq 0
 	check "other version, plain: the notice names it and the confirmed version" contains "$out" \
 		'Best effort: driver 570.1.2 is not guaranteed to work. Confirmed versions: 580.159.01. Required patch anchors matched'
 	check "other version, plain: one notice" test "$(printf '%s\n' "$out" | grep -c '^Best effort:')" -eq 1
-	check "other version, plain: compared at the reported offsets" contains "$out" \
-		'at the offsets the patch tool reported for this build: 0x'
+	check "other version, plain: compared at the patch sites" contains "$out" \
+		'at the patch sites of this build: 0x'
 	check "other version, plain: recorded as not confirmed" test "$(record_field confirmation)" = unconfirmed
 	check "other version, plain: the record names it" test \
 		"$(record_field driver_version)/$(record_field driver_version_confirmed)/$(record_field evidence_profile)" = \
@@ -1532,7 +1632,7 @@ case_plain_other_version() {
 	fx_exec unknown
 	check "other version, extra change: refused" test "$rc" -eq 3
 	check "other version, extra change: names the offset" contains "$out" \
-		'are not the offsets the patch tool reported for this build; first unexpected offset: 0x3'
+		'are not the patch sites of this build; first unexpected offset: 0x3'
 	check "other version, extra change: the installed module is untouched" test \
 		"$(sha256sum "$FX/root/lib/modules/$kdir/updates/dkms/nvidia.ko" | cut -d' ' -f1)" = "$before"
 	check "other version, extra change: no record" test ! -e "$FX/root/var/lib/geforce-sriov/driver-build"
